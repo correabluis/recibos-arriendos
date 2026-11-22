@@ -129,7 +129,7 @@
           <details id="detAdm" class="hide"><summary id="admSum">Descuentos del administrador del inmueble</summary>
             <p class="muted">El administrador recaudó el canon completo y transfirió menos. Marque su factura de comisión y escriba el costo de la transferencia si lo descontó. El recibo queda por el canon completo.</p>
             <div id="admFact"></div>
-            <label for="costoTr">Costo de la transferencia descontado (COP)</label>
+            <label for="costoTr">Costo de la transferencia descontado (COP; se calcula solo, puede corregirlo)</label>
             <input id="costoTr" inputmode="numeric" placeholder="0">
           </details>
           <div id="pagoMsg"></div>
@@ -248,7 +248,7 @@ async function abrir(id){
   $('kSub').textContent = (K.inmuebles||[]).map(i=>`${i.codigo} · ${i.direccion}`).join(' / ') + ` · Arrendador: ${K.titular_nombre}`;
   $('kSaldo').textContent = '…'; $('kEdades').innerHTML=''; $('kMov').innerHTML='';
   $('fPago').reset(); $('fecha').value = CTX.hoy; msg($('pagoMsg'),'');
-  pintaCuentas();
+  pintaCuentas(); COSTO_MANUAL = false;
   const { data, error } = await sb.rpc('rc_contrato', { p_id:id });
   if(error) return msg($('pagoMsg'), limpiaErr(error));
   DET = data;
@@ -272,7 +272,8 @@ async function abrir(id){
   if(s>0) chips.push(['Saldo', s]);
   if(DET.canon_actual && Number(DET.canon_actual)!==s) chips.push(['Canon', DET.canon_actual]);
   $('chips').innerHTML = chips.map(([t,v])=>`<button type="button" data-v="${v}">${t}: ${fmt(v)}</button>`).join('');
-  $('chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{ $('valor').value = fmt(b.dataset.v).replace(' COP',''); });
+  $('chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{ $('valor').value = fmt(b.dataset.v).replace(' COP',''); costoAuto(); });
+  document.querySelectorAll('.admX').forEach(x=>x.onchange=costoAuto);
 }
 $('volver').onclick = () => { show($('detK'),false); show($('selK'),true); K=null; };
 
@@ -284,6 +285,16 @@ function pintaCuentas(){
     : `<option value="">${ef?'No tiene caja de efectivo para este arrendador':'No hay cuenta para este arrendador'}</option>`;
 }
 $('medio').onchange = pintaCuentas;
+// Costo de la transferencia: se deduce solo (lo que se debe − lo que llegó − retención − facturas del administrador marcadas)
+let COSTO_MANUAL = false;
+function costoAuto(){
+  if(COSTO_MANUAL || $('detAdm').classList.contains('hide')) return;
+  const s = Number(DET?.saldo||0), fact = [...document.querySelectorAll('.admX:checked')].reduce((a,x)=>a+Number(x.dataset.v),0);
+  const c = s - num($('valor').value) - num($('ret').value) - fact;
+  $('costoTr').value = (num($('valor').value) && fact && c>0 && c<fact) ? c.toLocaleString('es-CO').replace(/,/g,'.') : '';
+}
+$('valor').addEventListener('input', costoAuto); $('ret').addEventListener('input', costoAuto);
+$('costoTr').addEventListener('input', ()=>{ COSTO_MANUAL = true; });
 ['valor','ret','costoTr'].forEach(id => $(id).addEventListener('input', e => { const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
 
 let PEND = null;
@@ -344,6 +355,7 @@ function textoEnvio(e){
   if(e.estado==='enviado') return 'Enviado por WhatsApp a ' + (e.a||'') + ' (' + e.para + ').';
   if(e.estado==='ya_enviado') return 'Ya se había enviado por WhatsApp.';
   if(e.estado==='error') return 'WhatsApp no enviado: ' + e.error;
+  if(e.estado==='no_aplica' && e.motivo && e.motivo.startsWith('inmueble administrado')) return 'No se envía por WhatsApp: el inmueble lo administra un tercero.';
   return '';
 }
 
