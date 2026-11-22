@@ -84,6 +84,40 @@ def incremento(k, fpago):
     return f'{txt} · próximo incremento: {MESES[prox.month - 1]} de {prox.year}'
 
 
+def aparato(ua):
+    """Descripción corta del aparato y navegador a partir del User-Agent."""
+    if not ua:
+        return ''
+    u = ua.lower()
+    if 'iphone' in u:
+        so = 'celular iPhone'
+    elif 'ipad' in u:
+        so = 'tableta iPad'
+    elif 'android' in u:
+        so = 'celular Android' if 'mobile' in u else 'tableta Android'
+    elif 'windows' in u:
+        so = 'computador Windows'
+    elif 'mac os' in u or 'macintosh' in u:
+        so = 'computador Mac'
+    elif 'linux' in u:
+        so = 'computador Linux'
+    else:
+        so = 'aparato no identificado'
+    if 'edg/' in u:
+        nav = 'Edge'
+    elif 'samsungbrowser' in u:
+        nav = 'Samsung Internet'
+    elif 'crios' in u or ('chrome/' in u and 'chromium' not in u):
+        nav = 'Chrome'
+    elif 'fxios' in u or 'firefox/' in u:
+        nav = 'Firefox'
+    elif 'safari/' in u:
+        nav = 'Safari'
+    else:
+        nav = ''
+    return f'{so} ({nav})' if nav else so
+
+
 def ts_bogota(s):
     t = datetime.fromisoformat(str(s).replace('Z', '+00:00')).astimezone(BOGOTA)
     h = t.hour % 12 or 12
@@ -291,9 +325,11 @@ def generar(d, salida, logo=None):
     # ---- firmas (recuadros horizontales) ----
     el = d.get('elaboro') or {}
     bw = (W - 2 * M - 6 * mm) / 2
-    bh = 34 * mm
-    cajas = [('ELABORADO POR', el.get('nombre'), doc(el), ts_bogota(d['creado_en']),
-              'Formulario «Recibos de arriendo» (usuario con código al correo)')]
+    bh = 38 * mm
+    ap = aparato(d.get('firma_user_agent'))
+    medio_form = ('Formulario «Recibos de arriendo»' + (f' desde {ap}' if ap else '')
+                  + '. Usuario verificado con código enviado a su correo')
+    cajas = [('ELABORADO POR', el.get('nombre'), doc(el), ts_bogota(d['creado_en']), medio_form)]
     if d['medio'] == 'efectivo':
         cajas.append(('RECIBIDO POR', cta.get('responsable') or el.get('nombre'),
                       doc(el) if (cta.get('responsable') or el.get('nombre')) == el.get('nombre') else '',
