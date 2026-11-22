@@ -21,6 +21,12 @@ Deno.serve(async (req) => {
   try {
     if (!CLIENT_ID || !CLIENT_SECRET) return pagina("Falta configuración", "Aún no están los secretos GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Supabase.", false, 500);
 
+    // Diagnóstico sin datos secretos: muestra el ID de cliente (público) y solo la forma del secreto.
+    if (url.searchParams.has("diag")) {
+      const vis = (x: string) => JSON.stringify(x);
+      return pagina("Diagnóstico", `ID de cliente: ${vis(CLIENT_ID)} (largo ${CLIENT_ID.length}). Secreto: largo ${CLIENT_SECRET.length}, empieza por ${vis(CLIENT_SECRET.slice(0, 7))}, ${/\s/.test(CLIENT_SECRET) ? "TIENE espacios" : "sin espacios"}.`, true);
+    }
+
     const iniciar = url.searchParams.get("iniciar");
     if (iniciar) {
       const [e] = await sql`select 1 from privado.oauth_estado where estado = ${iniciar} and expira > now()`;
