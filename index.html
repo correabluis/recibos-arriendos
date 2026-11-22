@@ -240,7 +240,7 @@ function pintaContratos(){
     <button class="k" data-id="${k.id}">
       <div><b>${esc(k.codigo)} · ${esc(k.arrendatario||'')}</b>
       <div class="s">${esc((k.inmuebles||[]).map(i=>i.direccion).join(' · '))}</div></div>
-      <span class="amt ${k.saldo>0?'debe':k.saldo<0?'favor':''}">${fmt(k.saldo)}</span>
+      <span class="amt ${k.saldo>0?'debe':k.saldo<0?'favor':''}">${k.saldo>0?'Debe '+fmt(k.saldo):k.saldo<0?fmt(-k.saldo)+' a favor':'Al día'}</span>
     </button>`).join('') || '<p class="muted">Sin resultados.</p>';
   $('listaK').querySelectorAll('.k').forEach(b => b.onclick = () => abrir(Number(b.dataset.id)));
 }
@@ -258,7 +258,7 @@ async function abrir(id){
   if(error) return msg($('pagoMsg'), limpiaErr(error));
   DET = data;
   const s = Number(DET.saldo);
-  $('kSaldo').textContent = s<0 ? fmt(-s)+' a favor' : fmt(s);
+  $('kSaldo').textContent = s>0 ? 'Debe '+fmt(s) : s<0 ? fmt(-s)+' a favor del arrendatario' : 'Al día';
   $('kSaldo').className = 'amt ' + (s>0?'debe':s<0?'favor':'');
   const e = DET.edades||{};
   $('kEdades').innerHTML = [['0–30 días',e.d0_30],['31–60',e.d31_60],['61–90',e.d61_90],['Más de 90',e.d90]]
@@ -335,7 +335,7 @@ $('fPago').onsubmit = ev => {
   if(ret||desc) filas.push(['Canon pagado (total del recibo)',fmt(total+desc)]);
   if(PEND.referencia) filas.push(['Referencia',PEND.referencia]);
   if(PEND.observacion) filas.push(['Observaciones',PEND.observacion]);
-  filas.push(['Saldo después', queda<0 ? fmt(-queda)+' a favor' : fmt(queda)]);
+  filas.push(['Saldo después', queda>0 ? 'Debe '+fmt(queda) : queda<0 ? fmt(-queda)+' a favor' : 'Al día']);
   $('confT').innerHTML = filas.map(([a,b])=>`<tr><td class="muted">${a}</td><td class="r"><b>${esc(b)}</b></td></tr>`).join('');
   msg($('confMsg'), PEND.es_prueba ? 'Recibo de PRUEBA: no cambia el saldo real.' : '', true);
   show($('mConf'),true);
