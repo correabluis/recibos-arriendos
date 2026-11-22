@@ -184,7 +184,7 @@ $('enviar').onclick = async () => {
   $('enviar').disabled = true; msg($('loginMsg'),'');
   const { error } = await sb.auth.signInWithOtp({ email: correo, options:{ shouldCreateUser:true, emailRedirectTo: location.origin + location.pathname } });
   $('enviar').disabled = false;
-  if(error) return msg($('loginMsg'), limpiaErr(error));
+  if(error) return msg($('loginMsg'), /rate limit/i.test(error.message) ? 'Se pidieron muchos correos seguidos. Espere un rato y vuelva a intentar (o use el último correo que le llegó).' : limpiaErr(error));
   store.setItem('rc_correo', correo);
   show($('paso1'),false); show($('paso2'),true); $('codigo').focus();
   msg($('loginMsg'),'Revise su correo (también spam): toque el enlace o escriba el código.',true);
