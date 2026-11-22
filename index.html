@@ -360,7 +360,7 @@ $('aSi').onclick = async () => {
   const { error } = await sb.rpc('rc_anular', { p_id: ANUL, p_motivo: m });
   $('aSi').disabled = false;
   if(error) return msg($('anulMsg'), limpiaErr(error));
-  show($('mAnul'),false); cargaRecibos();
+  show($('mAnul'),false); try { await procesarRecibo(ANUL, true); } catch(e) {} cargaRecibos();
 };
 
 // ---------- Arranque ----------

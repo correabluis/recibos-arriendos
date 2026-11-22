@@ -3,6 +3,7 @@
 // WhatsApp (Bird). Solo código: los datos salen de la base.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.4";
+import { Buffer } from "node:buffer";
 import { generarPdf, puntos } from "./pdf.ts";
 
 const CORS = {
@@ -63,6 +64,11 @@ Deno.serve(async (req) => {
     const up = await sb.storage.from("recibos").upload(ruta, bytes, { contentType: "application/pdf", upsert: true });
     if (up.error) return json({ error: "No se pudo guardar el PDF: " + up.error.message }, 500);
     if (!anulado) await sql`update tesoreria.comprobante set pdf_storage_path = ${ruta}, pdf_sha256 = ${sha} where id = ${id} and pdf_sha256 is null`;
+    // Cola de archivo en Drive (la tarea programada la sube y la borra)
+    await sql`insert into tesoreria.comprobante_archivo_pendiente (comprobante_id, anulado, nombre, pdf)
+      select ${id}, ${anulado}, ${nombreArchivo}, ${Buffer.from(bytes)}
+      where not exists (select 1 from tesoreria.comprobante_archivo a where a.comprobante_id = ${id} and a.anulado = ${anulado})
+      on conflict (comprobante_id, anulado) do update set nombre = excluded.nombre, pdf = excluded.pdf, created_at = now()`;
     const { data: firmado } = await sb.storage.from("recibos").createSignedUrl(ruta, 7 * 24 * 3600, { download: nombreArchivo });
     const url = firmado?.signedUrl;
 
