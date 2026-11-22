@@ -302,8 +302,30 @@ $('cSi').onclick = async () => {
   show($('mConf'),false);
   const ctx = await sb.rpc('rc_contexto'); if(!ctx.error) CTX = ctx.data;
   await abrir(K.id);
-  msg($('pagoMsg'), `Recibo ${data.codigo} emitido${data.es_prueba?' (prueba)':''}.`, true);
+  msg($('pagoMsg'), `Recibo ${data.codigo} emitido${data.es_prueba?' (prueba)':''}. Generando el PDF…`, true);
+  try {
+    const p = await procesarRecibo(data.id);
+    $('pagoMsg').innerHTML = `<div class="msg ok">Recibo ${esc(data.codigo)} emitido${data.es_prueba?' (prueba)':''}. ${esc(textoEnvio(p.envio))}<br><a href="${esc(p.url)}" target="_blank" rel="noopener">Ver PDF</a></div>`;
+  } catch(e) { msg($('pagoMsg'), `Recibo ${data.codigo} emitido, pero el PDF falló: ${e.message}. Ábralo luego desde «Recibos».`); }
 };
+
+// ---------- PDF y WhatsApp (función recibo-ci) ----------
+async function procesarRecibo(id, soloPdf){
+  const { data:{ session } } = await sb.auth.getSession();
+  const r = await fetch(SB_URL + '/functions/v1/recibo-ci', { method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + session.access_token, 'apikey': SB_KEY },
+    body: JSON.stringify({ id, soloPdf: !!soloPdf }) });
+  const j = await r.json().catch(()=>({ error:'Respuesta inválida' }));
+  if(!r.ok || j.error) throw new Error(j.error || ('Error ' + r.status));
+  return j;
+}
+function textoEnvio(e){
+  if(!e) return '';
+  if(e.estado==='enviado') return 'Enviado por WhatsApp a ' + (e.a||'') + ' (' + e.para + ').';
+  if(e.estado==='ya_enviado') return 'Ya se había enviado por WhatsApp.';
+  if(e.estado==='error') return 'WhatsApp no enviado: ' + e.error;
+  return '';
+}
 
 // ---------- Lista de recibos ----------
 function tab(lista){
@@ -324,7 +346,9 @@ async function cargaRecibos(){
       <div class="muted">${fecha(r.fecha)} · ${esc(r.contrato||'')} · ${esc(r.tercero)} · ${esc(MEDIOS[r.medio]?.nombre||r.medio)}</div>
       ${r.estado==='anulado'&&r.motivo?`<div class="muted">Motivo: ${esc(r.motivo)}</div>`:''}</td>
     <td class="r"><span class="amt">${fmt(r.valor)}</span>
+      <br><button class="link" data-p="${r.id}">PDF</button>
       ${CTX.rol==='admin'&&r.estado==='emitido'?`<br><button class="link" data-a="${r.id}" data-c="${esc(r.codigo)}">Anular</button>`:''}</td></tr>`).join('') + '</table>';
+  $('listaR').querySelectorAll('[data-p]').forEach(b=>b.onclick=async()=>{ b.textContent='…'; try{ const p=await procesarRecibo(Number(b.dataset.p), true); b.outerHTML=`<a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir PDF</a>`; }catch(e){ b.textContent='Error: '+e.message; } });
   $('listaR').querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{ ANUL=Number(b.dataset.a); $('aCod').textContent=b.dataset.c; $('aMot').value=''; msg($('anulMsg'),''); show($('mAnul'),true); });
 }
 let ANUL = null;
