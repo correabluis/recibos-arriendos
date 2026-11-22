@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#16382b">
+<title>Autorización de Google Drive</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#111513;color:#e7ece9;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px}
+  .card{max-width:460px;background:#1a201d;border:1px solid #2e3732;border-radius:14px;padding:22px}
+  h2{margin:0 0 10px} .ok{color:#7fd6ad} .err{color:#ff8f86} p{line-height:1.5}
+</style>
+</head>
+<body>
+<div class="card"><h2 id="t"></h2><p id="m"></p></div>
+<script>
+  // Solo muestra el resultado que envía la función «google-auth»; no guarda nada.
+  const q = new URLSearchParams(location.search);
+  const ok = q.get("r") === "ok";
+  const t = document.getElementById("t"), m = document.getElementById("m");
+  t.textContent = q.get("t") || (ok ? "Listo" : "No se completó");
+  t.className = ok ? "ok" : "err";
+  m.textContent = q.get("m") || "";
+</script>
+</body>
+</html>

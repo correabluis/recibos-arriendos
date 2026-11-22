@@ -5,6 +5,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.4";
 import { Buffer } from "node:buffer";
 import { generarPdf, generarPdfEntrega, puntos } from "./pdf.ts";
+import { archivarEnDrive } from "./drive.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -16,7 +17,7 @@ const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { sta
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { prepare: false, max: 1 });
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
-const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w .,$-]/g, "").trim();
+const sinTildes = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w .,$-]/g, "").trim();
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const MES3 = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -74,7 +75,7 @@ Deno.serve(async (req) => {
     const up = await sb.storage.from("recibos").upload(ruta, bytes, { contentType: "application/pdf", upsert: true });
     if (up.error) return json({ error: "No se pudo guardar el PDF: " + up.error.message }, 500);
     if (!anulado) await sql`update tesoreria.comprobante set pdf_storage_path = ${ruta}, pdf_sha256 = ${sha} where id = ${id} and pdf_sha256 is null`;
-    // Cola de archivo en Drive (la tarea programada la sube y la borra)
+    // Cola de archivo en Drive: se sube en línea al final (archivarEnDrive); si falla, la tarea horaria la sube
     await sql`insert into tesoreria.comprobante_archivo_pendiente (comprobante_id, anulado, nombre, pdf)
       select ${id}, ${anulado}, ${nombreArchivo}, ${Buffer.from(bytes)}
       where not exists (select 1 from tesoreria.comprobante_archivo a where a.comprobante_id = ${id} and a.anulado = ${anulado})
@@ -132,6 +133,14 @@ Deno.serve(async (req) => {
         values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error}, ${c.es_prueba})`;
       envio = mensajeId ? { estado: "enviado", para: "****" + para!.slice(-4), a: c.es_prueba ? "quien emitió (prueba)" : "arrendatario" } : { estado: "error", error };
     }
+    // Archivo en Drive en segundo plano (no demora la respuesta); de paso sube lo que haya quedado en cola.
+    const drive = (async () => {
+      await archivarEnDrive(sql, id, anulado);
+      const pend = await sql`select comprobante_id, anulado from tesoreria.comprobante_archivo_pendiente order by created_at limit 5`;
+      for (const p of pend) await archivarEnDrive(sql, Number(p.comprobante_id), p.anulado);
+    })();
+    // @ts-ignore EdgeRuntime existe en Supabase
+    if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(drive); else await drive;
     return json({ ok: true, codigo: d.codigo, url, archivo: nombreArchivo, envio });
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500);
