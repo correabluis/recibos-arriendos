@@ -75,9 +75,9 @@ Deno.serve(async (req) => {
     // ---- WhatsApp ----
     let envio: Record<string, unknown> = { estado: "no_enviado" };
     const yaEnviado = (await sql`select 1 from tesoreria.comprobante_envio where comprobante_id = ${id} and mensaje_id is not null limit 1`).length > 0;
-    // Inmuebles con administrador externo: el recibo no se le envía al arrendatario (decisión de Luis, 2026-11-22)
+    // Contratos administrados por agencia: no se le escribe al arrendatario (regla única en privado.fn_comunicar_arrendatario)
     const conAdministrador = !c.es_prueba && d.contrato?.id &&
-      (await sql`select 1 from arriendos.contrato_parte where contrato_id = ${d.contrato.id} and rol = 'administrador' limit 1`).length > 0;
+      !(await sql`select privado.fn_comunicar_arrendatario(${d.contrato.id}) as ok`)[0].ok;
     if (anulado) envio = { estado: "no_aplica", motivo: "comprobante anulado" };
     else if (conAdministrador) envio = { estado: "no_aplica", motivo: "inmueble administrado por un tercero: no se le escribe al arrendatario" };
     else if (body.soloPdf) envio = { estado: "omitido" };

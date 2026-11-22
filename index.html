@@ -129,7 +129,7 @@
           <details id="detAdm" class="hide"><summary id="admSum">Descuentos del administrador del inmueble</summary>
             <p class="muted">El administrador recaudó el canon completo y transfirió menos. Marque su factura de comisión y escriba el costo de la transferencia si lo descontó. El recibo queda por el canon completo.</p>
             <div id="admFact"></div>
-            <label for="costoTr">Costo de la transferencia descontado (COP; se calcula solo, puede corregirlo)</label>
+            <label for="costoTr">Costo de la transferencia descontado (COP; sale de la tarifa de la agencia, puede corregirlo)</label>
             <input id="costoTr" inputmode="numeric" placeholder="0">
           </details>
           <div id="pagoMsg"></div>
@@ -262,6 +262,7 @@ async function abrir(id){
     (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td></tr>`).join('') + '</table>' +
     ((DET.pruebas||[]).length ? '<p class="muted" style="margin-top:8px">Recibos de prueba de este contrato: ' + DET.pruebas.map(p=>`${esc(p.codigo)} (${fmt(p.valor)}${p.estado==='anulado'?', anulado':''})`).join(', ') + '</p>' : '');
   const adm = DET.administrador, des = DET.descuentos||[];
+  $('kSub').textContent += adm ? ` · Administración: por agencia (${adm.nombre}); no se le escribe al arrendatario` : ' · Administración: directa';
   show($('detAdm'), !!adm && CTX.rol==='admin'); $('detAdm').open = des.length>0;
   if(adm){
     $('admSum').textContent = 'Descuentos de ' + adm.nombre + ' (administrador)';
@@ -271,9 +272,10 @@ async function abrir(id){
   const chips = [];
   if(s>0) chips.push(['Saldo', s]);
   if(DET.canon_actual && Number(DET.canon_actual)!==s) chips.push(['Canon', DET.canon_actual]);
+  if(DET.liquidacion_agencia) chips.unshift(['Debe llegar de la agencia', DET.liquidacion_agencia.debe_llegar]);
   $('chips').innerHTML = chips.map(([t,v])=>`<button type="button" data-v="${v}">${t}: ${fmt(v)}</button>`).join('');
   $('chips').querySelectorAll('button').forEach(b=>b.onclick=()=>{ $('valor').value = fmt(b.dataset.v).replace(' COP',''); costoAuto(); });
-  document.querySelectorAll('.admX').forEach(x=>x.onchange=costoAuto);
+  costoAuto();
 }
 $('volver').onclick = () => { show($('detK'),false); show($('selK'),true); K=null; };
 
@@ -288,10 +290,10 @@ $('medio').onchange = pintaCuentas;
 // Costo de la transferencia: se deduce solo (lo que se debe − lo que llegó − retención − facturas del administrador marcadas)
 let COSTO_MANUAL = false;
 function costoAuto(){
+  // El costo de la transferencia sale de la tarifa de la agencia (tabla de agencias); se puede corregir a mano
   if(COSTO_MANUAL || $('detAdm').classList.contains('hide')) return;
-  const s = Number(DET?.saldo||0), fact = [...document.querySelectorAll('.admX:checked')].reduce((a,x)=>a+Number(x.dataset.v),0);
-  const c = s - num($('valor').value) - num($('ret').value) - fact;
-  $('costoTr').value = (num($('valor').value) && fact && c>0 && c<fact) ? c.toLocaleString('es-CO').replace(/,/g,'.') : '';
+  const c = Number(DET?.liquidacion_agencia?.costo_transferencia||0);
+  $('costoTr').value = c ? c.toLocaleString('es-CO').replace(/,/g,'.') : '';
 }
 $('valor').addEventListener('input', costoAuto); $('ret').addEventListener('input', costoAuto);
 $('costoTr').addEventListener('input', ()=>{ COSTO_MANUAL = true; });
