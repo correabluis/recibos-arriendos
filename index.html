@@ -272,6 +272,8 @@ async function abrir(id){
   $('kMov').innerHTML = '<table><tr><th>Fecha</th><th>Detalle</th><th class="r">Cargo</th><th class="r">Abono</th><th>Soporte</th></tr>' +
     (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td><td>${enlace(m)}</td></tr>`).join('') + '</table>' +
     ((DET.pruebas||[]).length ? '<p class="muted" style="margin-top:8px">Recibos de prueba de este contrato: ' + DET.pruebas.map(p=>`${esc(p.codigo)} (${fmt(p.valor)}${p.estado==='anulado'?', anulado':''})`).join(', ') + '</p>' : '');
+  // Título enlazado a la carpeta del contrato en Drive (el id vive en la base)
+  if (DET.carpeta_drive) $('kTit').innerHTML = `<a href="https://drive.google.com/drive/folders/${encodeURIComponent(DET.carpeta_drive)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;text-decoration-color:var(--brandtx);text-underline-offset:3px">${esc(K.codigo)} · ${esc(K.arrendatario||'')} ↗</a>`;
   const cz = DET.causacion, MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   const fLarga = s => { const [y,m,d] = String(s).split('-').map(Number); return `${d} de ${MES_L[m-1]} de ${y}`; };
   $('kCaus').innerHTML = cz && cz.dia ? `<b>Causación:</b> día ${cz.dia} de cada mes` + (cz.proxima ? ` · próxima: ${fLarga(cz.proxima)}` : '') : '<b>Causación:</b> sin cánones mensuales';
