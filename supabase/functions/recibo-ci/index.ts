@@ -38,11 +38,20 @@ function periodoTexto(g: { desde: string; hasta: string }): string {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
-    const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-    const { data: u, error: eu } = await sb.auth.getUser(token);
-    if (eu || !u?.user) return json({ error: "Sesión no válida" }, 401);
-    const uid = u.user.id;
     const body = await req.json().catch(() => ({}));
+    let uid: string;
+    if (body.ticket) {
+      // Recibo emitido por una tarea programada: boleto de un solo uso creado en la base
+      const [tk] = await sql`delete from privado.ticket_proceso where token = ${String(body.ticket)} and comprobante_id = ${Number(body.id)} and expira > now() returning solo_pdf`;
+      if (!tk) return json({ error: "Boleto no válido o vencido" }, 401);
+      const [cc] = await sql`select creado_por from tesoreria.comprobante where id = ${Number(body.id)}`;
+      uid = cc.creado_por; body.soloPdf = tk.solo_pdf; delete body.entrega_id;
+    } else {
+      const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const { data: u, error: eu } = await sb.auth.getUser(token);
+      if (eu || !u?.user) return json({ error: "Sesión no válida" }, 401);
+      uid = u.user.id;
+    }
     const [usr] = await sql`select rol, tercero_id from maestros.usuario where user_id = ${uid} and activo`;
     if (body.entrega_id) return await procesarEntrega(Number(body.entrega_id), uid, usr, body);
     const id = Number(body.id);

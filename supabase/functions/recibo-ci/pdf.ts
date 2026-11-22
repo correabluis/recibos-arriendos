@@ -266,7 +266,9 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
   const el = d.elaboro || {};
   const bw = (W - 2 * M - 6 * MM) / 2, bh = 38 * MM;
   const ap = aparato(d.firma_user_agent);
-  const medioForm = "Formulario «Recibos de arriendo»" + (ap ? ` desde ${ap}` : "") + ". Usuario verificado con código enviado a su correo";
+  const ua = String(d.firma_user_agent || "");
+  const medioForm = ua.startsWith("Tarea") ? `${ua}: registro automático a nombre del administrador`
+    : "Formulario «Recibos de arriendo»" + (ap ? ` desde ${ap}` : "") + ". Usuario verificado con código enviado a su correo";
   const cajas: [string, string, string, string | null, string][] = [["ELABORADO POR", el.nombre || "", doc(el), tsBogota(d.creado_en), medioForm]];
   if (d.medio === "efectivo") {
     const resp = cta.responsable || el.nombre;
