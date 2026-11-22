@@ -64,7 +64,7 @@
   <!-- Entrada -->
   <section id="vLogin" class="card">
     <h2>Entrar</h2>
-    <p class="muted">Escriba su correo. Le llega un código de 6 dígitos.</p>
+    <p class="muted">Escriba su correo. Le llega un mensaje: toque el enlace o escriba aquí el código.</p>
     <div id="paso1">
       <label for="correo">Correo</label>
       <input id="correo" type="email" autocomplete="email" inputmode="email">
@@ -182,12 +182,12 @@ $('enviar').onclick = async () => {
   const correo = $('correo').value.trim().toLowerCase();
   if(!/^\S+@\S+\.\S+$/.test(correo)) return msg($('loginMsg'),'Escriba un correo válido.');
   $('enviar').disabled = true; msg($('loginMsg'),'');
-  const { error } = await sb.auth.signInWithOtp({ email: correo, options:{ shouldCreateUser:true } });
+  const { error } = await sb.auth.signInWithOtp({ email: correo, options:{ shouldCreateUser:true, emailRedirectTo: location.origin + location.pathname } });
   $('enviar').disabled = false;
   if(error) return msg($('loginMsg'), limpiaErr(error));
   store.setItem('rc_correo', correo);
   show($('paso1'),false); show($('paso2'),true); $('codigo').focus();
-  msg($('loginMsg'),'Revise su correo (también la carpeta de spam).',true);
+  msg($('loginMsg'),'Revise su correo (también spam): toque el enlace o escriba el código.',true);
 };
 $('verificar').onclick = async () => {
   const token = $('codigo').value.replace(/\D/g,'');
@@ -337,6 +337,7 @@ $('aSi').onclick = async () => {
 };
 
 // ---------- Arranque ----------
+sb.auth.onAuthStateChange((ev, ses) => { if(ev==='SIGNED_IN' && ses && !CTX) iniciar(); });
 (async () => {
   const c = store.getItem('rc_correo'); if(c) $('correo').value = c;
   const { data } = await sb.auth.getSession();
