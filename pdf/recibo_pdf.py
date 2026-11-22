@@ -311,10 +311,14 @@ def generar(d, salida, logo=None):
         c.drawString(bx + 3 * mm, y - 5 * mm, cab)
         yy = y - 10.5 * mm
         if cuando:
-            c.setFillColor(GRIS)
-            c.setFont('Helvetica', 7.5)
-            c.drawString(bx + 3 * mm, yy, 'Firmado electrónicamente')
-            yy -= 5 * mm
+            sello = 'FIRMADO ELECTRÓNICAMENTE'
+            sw = c.stringWidth(sello, 'Helvetica-Bold', 7.5) + 4 * mm
+            c.setFillColor(VERDE)
+            c.roundRect(bx + 3 * mm, yy - 1.6 * mm, sw, 5 * mm, 1.2 * mm, stroke=0, fill=1)
+            c.setFillColor(HexColor('#ffffff'))
+            c.setFont('Helvetica-Bold', 7.5)
+            c.drawString(bx + 5 * mm, yy, sello)
+            yy -= 6 * mm
             c.setFillColor(VERDE)
             c.setFont('Helvetica-Bold', 10)
             c.drawString(bx + 3 * mm, yy, nom or '')
