@@ -61,6 +61,29 @@ def periodo(desde, hasta):
     return f'{ia} al {b.day} {MES3[b.month - 1]} {b.year}'
 
 
+def incremento(k, fpago):
+    regla = k.get('regla_reajuste')
+    mes = k.get('mes_reajuste')
+    if not regla or regla == 'sin_regla' or not mes:
+        return None
+    pts = float(k.get('puntos_reajuste') or 0) * 100
+    pts_t = (f'{pts:.2f}'.rstrip('0').rstrip('.')).replace('.', ',')
+    txt = {'pct_fijo': f'{pts_t} %', 'ipc': 'IPC', 'ipc_mas_puntos': f'IPC + {pts_t} puntos',
+           'ipc_tope_vivienda': 'IPC (tope legal de vivienda, Ley 820 de 2003)'}.get(regla, regla)
+    fp = date.fromisoformat(str(fpago)[:10])
+    dia = date.fromisoformat(str(k.get('fecha_inicio'))[:10]).day if k.get('fecha_inicio') else 1
+    def fecha_en(anio):
+        for dd in (dia, 30, 29, 28):
+            try:
+                return date(anio, mes, dd)
+            except ValueError:
+                pass
+    prox = fecha_en(fp.year)
+    if prox <= fp:
+        prox = fecha_en(fp.year + 1)
+    return f'{txt} · próximo incremento: {MESES[prox.month - 1]} de {prox.year}'
+
+
 def ts_bogota(s):
     t = datetime.fromisoformat(str(s).replace('Z', '+00:00')).astimezone(BOGOTA)
     h = t.hour % 12 or 12
@@ -164,17 +187,25 @@ def generar(d, salida, logo=None):
         campos.append(('Inmueble:', f"{inm['codigo']} - {inm['direccion']}, {inm.get('municipio') or 'Medellín'}"))
     if k.get('codigo'):
         campos.append(('Contrato:', k['codigo']))
+    inc = incremento(k, d['fecha_pago']) if k else None
+    if inc:
+        campos.append(('Incremento:', inc))
     campos.append(('Forma de pago:', medio))
+    if d.get('referencia'):
+        campos.append(('Referencia:', d['referencia']))
+    if es_soc:
+        facts = sorted({str(g['factura']) for g in (d.get('cobertura') or {}).get('cubre') or [] if g.get('factura')})
+        campos.append(('Factura que cancela:', ', '.join(facts) if facts else 'pendiente de enlazar'))
     if d.get('observacion'):
-        campos.append(('Referencia:', d['observacion']))
+        campos.append(('Observaciones:', d['observacion']))
     for et, val in campos:
         c.setFont('Helvetica-Bold', 9.5)
         c.setFillColor(TINTA)
         c.drawString(M, y, et)
         c.setFont('Helvetica', 9.5)
-        filas = simpleSplit(str(val), 'Helvetica', 9.5, W - 2 * M - 40 * mm)
+        filas = simpleSplit(str(val), 'Helvetica', 9.5, W - 2 * M - 42 * mm)
         for i, f in enumerate(filas):
-            c.drawString(M + 40 * mm, y - i * 4.6 * mm, f)
+            c.drawString(M + 42 * mm, y - i * 4.6 * mm, f)
         y -= max(1, len(filas)) * 4.6 * mm + 1.6 * mm
     y -= 4 * mm
 
@@ -280,11 +311,12 @@ def generar(d, salida, logo=None):
         c.drawString(bx + 3 * mm, y - 5 * mm, cab)
         yy = y - 10.5 * mm
         if cuando:
-            c.setFillColor(VERDE)
-            c.setFont('Helvetica-Bold', 9)
-            c.drawString(bx + 3 * mm, yy, 'FIRMADO ELECTRÓNICAMENTE')
+            c.setFillColor(GRIS)
+            c.setFont('Helvetica', 7.5)
+            c.drawString(bx + 3 * mm, yy, 'Firmado electrónicamente')
             yy -= 5 * mm
-            c.setFont('Helvetica-Bold', 9.5)
+            c.setFillColor(VERDE)
+            c.setFont('Helvetica-Bold', 10)
             c.drawString(bx + 3 * mm, yy, nom or '')
         else:
             c.setFillColor(TINTA)

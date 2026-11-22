@@ -119,6 +119,8 @@
           <select id="cuenta"></select>
           <label for="ref">Referencia o comprobante del banco (opcional)</label>
           <input id="ref" maxlength="120">
+          <label for="obs">Observaciones (opcional; salen en el recibo)</label>
+          <input id="obs" maxlength="200" placeholder="Ej.: cancela el canon de noviembre">
           <details id="detRet"><summary>El arrendatario practicó retención</summary>
             <label for="ret">Retención practicada (COP)</label>
             <input id="ret" inputmode="numeric" placeholder="0">
@@ -280,11 +282,12 @@ $('fPago').onsubmit = ev => {
   if($('fecha').value > CTX.hoy) return msg($('pagoMsg'),'La fecha no puede ser futura.');
   if(!cuenta) return msg($('pagoMsg'),'Escoja a qué cuenta entró el dinero.');
   const total = recibido + ret, s = Number(DET?.saldo||0), queda = s - total;
-  PEND = { contrato_id:K.id, fecha_pago:$('fecha').value, valor:total, retencion:ret, medio_pago:$('medio').value, cuenta_id:cuenta, referencia:$('ref').value.trim(), es_prueba:!CTX.reales_habilitados };
+  PEND = { contrato_id:K.id, fecha_pago:$('fecha').value, valor:total, retencion:ret, medio_pago:$('medio').value, cuenta_id:cuenta, referencia:$('ref').value.trim(), observacion:$('obs').value.trim(), es_prueba:!CTX.reales_habilitados };
   const filas = [['Contrato',`${K.codigo} · ${K.arrendatario||''}`],['Fecha',fecha(PEND.fecha_pago)],['Medio',MEDIOS[PEND.medio_pago]?.nombre||PEND.medio_pago],
     ['Cuenta',$('cuenta').selectedOptions[0].textContent],['Recibido',fmt(recibido)]];
   if(ret) filas.push(['Retención',fmt(ret)],['Total del recibo',fmt(total)]);
   if(PEND.referencia) filas.push(['Referencia',PEND.referencia]);
+  if(PEND.observacion) filas.push(['Observaciones',PEND.observacion]);
   filas.push(['Saldo después', queda<0 ? fmt(-queda)+' a favor' : fmt(queda)]);
   $('confT').innerHTML = filas.map(([a,b])=>`<tr><td class="muted">${a}</td><td class="r"><b>${esc(b)}</b></td></tr>`).join('');
   msg($('confMsg'), PEND.es_prueba ? 'Recibo de PRUEBA: no cambia el saldo real.' : '', true);
