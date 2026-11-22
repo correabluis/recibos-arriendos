@@ -100,6 +100,7 @@
           <button class="link" id="volver">← Cambiar contrato</button>
           <h2 id="kTit"></h2>
           <div class="muted" id="kSub"></div>
+          <div class="muted" id="kCaus" style="margin-top:4px"></div>
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px">
             <span class="muted">Saldo del contrato</span><span class="amt" id="kSaldo" style="font-size:20px"></span>
           </div>
@@ -270,6 +271,9 @@ async function abrir(id){
   $('kMov').innerHTML = '<table><tr><th>Fecha</th><th>Detalle</th><th class="r">Cargo</th><th class="r">Abono</th><th>Soporte</th></tr>' +
     (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td><td>${enlace(m)}</td></tr>`).join('') + '</table>' +
     ((DET.pruebas||[]).length ? '<p class="muted" style="margin-top:8px">Recibos de prueba de este contrato: ' + DET.pruebas.map(p=>`${esc(p.codigo)} (${fmt(p.valor)}${p.estado==='anulado'?', anulado':''})`).join(', ') + '</p>' : '');
+  const cz = DET.causacion, MES_L = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const fLarga = s => { const [y,m,d] = String(s).split('-').map(Number); return `${d} de ${MES_L[m-1]} de ${y}`; };
+  $('kCaus').innerHTML = cz && cz.dia ? `<b>Causación:</b> día ${cz.dia} de cada mes` + (cz.proxima ? ` · próxima: ${fLarga(cz.proxima)}` : '') : '<b>Causación:</b> sin cánones mensuales';
   const adm = DET.administrador, des = DET.descuentos||[];
   $('kSub').textContent += adm ? ` · Administración: por agencia (${adm.nombre}); no se le escribe al arrendatario` : ' · Administración: directa';
   show($('detAdm'), !!adm && CTX.rol==='admin'); $('detAdm').open = des.length>0;
