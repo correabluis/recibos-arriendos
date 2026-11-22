@@ -32,6 +32,7 @@
   .tabs button.on{background:var(--brand);color:#fff;border-color:var(--brand)}
   .k{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--card);color:var(--ink);width:100%;text-align:left}
   .k b{font-size:15px}.k .s{font-size:13px;color:var(--muted)}
+  .k>div{min-width:0}.k .amt{white-space:normal;text-align:right;flex-shrink:0;max-width:45%}
   .amt{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
   .debe{color:var(--bad)}.favor{color:var(--brandtx)}
   .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px}
@@ -101,8 +102,8 @@
           <h2 id="kTit"></h2>
           <div class="muted" id="kSub"></div>
           <div class="muted" id="kCaus" style="margin-top:4px"></div>
-          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:10px">
-            <span class="muted">Saldo del contrato</span><span class="amt" id="kSaldo" style="font-size:20px"></span>
+          <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 10px;margin-top:10px">
+            <span class="muted">Saldo del contrato</span><span class="amt" id="kSaldo" style="font-size:20px;white-space:normal;text-align:right;margin-left:auto"></span>
           </div>
           <div class="grid4" id="kEdades"></div>
           <details><summary>Ver movimientos</summary><div id="kMov"></div></details>
@@ -240,7 +241,7 @@ function pintaContratos(){
     <button class="k" data-id="${k.id}">
       <div><b>${esc(k.codigo)} · ${esc(k.arrendatario||'')}</b>
       <div class="s">${esc((k.inmuebles||[]).map(i=>i.direccion).join(' · '))}</div></div>
-      <span class="amt ${k.saldo>0?'debe':k.saldo<0?'favor':''}">${k.saldo>0?'Debe '+fmt(k.saldo):k.saldo<0?fmt(-k.saldo)+' a favor':'Al día'}</span>
+      <span class="amt ${k.saldo>0?'debe':k.saldo<0?'favor':''}">${k.saldo>0?'Debe '+fmt(k.saldo).replace(' ','\u00a0'):k.saldo<0?fmt(-k.saldo).replace(' ','\u00a0')+' a favor':'Al día'}</span>
     </button>`).join('') || '<p class="muted">Sin resultados.</p>';
   $('listaK').querySelectorAll('.k').forEach(b => b.onclick = () => abrir(Number(b.dataset.id)));
 }
@@ -258,7 +259,7 @@ async function abrir(id){
   if(error) return msg($('pagoMsg'), limpiaErr(error));
   DET = data;
   const s = Number(DET.saldo);
-  $('kSaldo').textContent = s>0 ? 'Debe '+fmt(s) : s<0 ? fmt(-s)+' a favor del arrendatario' : 'Al día';
+  $('kSaldo').textContent = s>0 ? 'Debe '+fmt(s) : s<0 ? fmt(-s)+' a favor' : 'Al día';
   $('kSaldo').className = 'amt ' + (s>0?'debe':s<0?'favor':'');
   const e = DET.edades||{};
   $('kEdades').innerHTML = [['0–30 días',e.d0_30],['31–60',e.d31_60],['61–90',e.d61_90],['Más de 90',e.d90]]
