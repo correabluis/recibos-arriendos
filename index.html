@@ -126,6 +126,12 @@
             <input id="ret" inputmode="numeric" placeholder="0">
             <p class="muted">El valor recibido es lo que llegó a la cuenta. El recibo se hace por recibido + retención.</p>
           </details>
+          <details id="detAdm" class="hide"><summary id="admSum">Descuentos del administrador del inmueble</summary>
+            <p class="muted">El administrador recaudó el canon completo y transfirió menos. Marque su factura de comisión y escriba el costo de la transferencia si lo descontó. El recibo queda por el canon completo.</p>
+            <div id="admFact"></div>
+            <label for="costoTr">Costo de la transferencia descontado (COP)</label>
+            <input id="costoTr" inputmode="numeric" placeholder="0">
+          </details>
           <div id="pagoMsg"></div>
           <div style="height:12px"></div>
           <button class="btn" type="submit" id="bRevisar">Revisar</button>
@@ -255,6 +261,13 @@ async function abrir(id){
   $('kMov').innerHTML = '<table><tr><th>Fecha</th><th>Detalle</th><th class="r">Cargo</th><th class="r">Abono</th></tr>' +
     (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td></tr>`).join('') + '</table>' +
     ((DET.pruebas||[]).length ? '<p class="muted" style="margin-top:8px">Recibos de prueba de este contrato: ' + DET.pruebas.map(p=>`${esc(p.codigo)} (${fmt(p.valor)}${p.estado==='anulado'?', anulado':''})`).join(', ') + '</p>' : '');
+  const adm = DET.administrador, des = DET.descuentos||[];
+  show($('detAdm'), !!adm && CTX.rol==='admin'); $('detAdm').open = des.length>0;
+  if(adm){
+    $('admSum').textContent = 'Descuentos de ' + adm.nombre + ' (administrador)';
+    $('admFact').innerHTML = des.length ? des.map(x=>`<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400"><input type="checkbox" class="admX" data-id="${x.id}" data-v="${Number(x.saldo)}" checked style="width:auto;margin-top:3px"><span>${x.numero?('Factura '+esc(x.numero)):esc(x.tipo)} del ${fecha(x.fecha)}: <b>${fmt(x.saldo)}</b><br><span class="muted">${esc(x.descripcion||'')}</span></span></label>`).join('')
+      : '<p class="muted">No hay facturas del administrador pendientes por descontar.</p>';
+  }
   const chips = [];
   if(s>0) chips.push(['Saldo', s]);
   if(DET.canon_actual && Number(DET.canon_actual)!==s) chips.push(['Canon', DET.canon_actual]);
@@ -271,7 +284,7 @@ function pintaCuentas(){
     : `<option value="">${ef?'No tiene caja de efectivo para este arrendador':'No hay cuenta para este arrendador'}</option>`;
 }
 $('medio').onchange = pintaCuentas;
-['valor','ret'].forEach(id => $(id).addEventListener('input', e => { const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
+['valor','ret','costoTr'].forEach(id => $(id).addEventListener('input', e => { const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
 
 let PEND = null;
 $('fPago').onsubmit = ev => {
@@ -281,11 +294,18 @@ $('fPago').onsubmit = ev => {
   if(!$('fecha').value) return msg($('pagoMsg'),'Escriba la fecha del pago.');
   if($('fecha').value > CTX.hoy) return msg($('pagoMsg'),'La fecha no puede ser futura.');
   if(!cuenta) return msg($('pagoMsg'),'Escoja a qué cuenta entró el dinero.');
-  const total = recibido + ret, s = Number(DET?.saldo||0), queda = s - total;
+  const usaAdm = !$('detAdm').classList.contains('hide');
+  const cruces = usaAdm ? [...document.querySelectorAll('.admX:checked')].map(x=>({ cuenta_por_pagar_id:Number(x.dataset.id), valor:Number(x.dataset.v) })) : [];
+  const costo = usaAdm ? num($('costoTr').value) : 0;
+  const desc = cruces.reduce((a,z)=>a+z.valor,0) + costo;
+  const total = recibido + ret, s = Number(DET?.saldo||0), queda = s - total - desc;
   PEND = { contrato_id:K.id, fecha_pago:$('fecha').value, valor:total, retencion:ret, medio_pago:$('medio').value, cuenta_id:cuenta, referencia:$('ref').value.trim(), observacion:$('obs').value.trim(), es_prueba:!CTX.reales_habilitados };
+  if(desc){ PEND.cruces = cruces; PEND.costo_transferencia = costo; }
   const filas = [['Contrato',`${K.codigo} · ${K.arrendatario||''}`],['Fecha',fecha(PEND.fecha_pago)],['Medio',MEDIOS[PEND.medio_pago]?.nombre||PEND.medio_pago],
     ['Cuenta',$('cuenta').selectedOptions[0].textContent],['Recibido',fmt(recibido)]];
-  if(ret) filas.push(['Retención',fmt(ret)],['Total del recibo',fmt(total)]);
+  if(ret) filas.push(['Retención',fmt(ret)]);
+  if(desc) filas.push(['Descontado por el administrador',fmt(desc)]);
+  if(ret||desc) filas.push(['Canon pagado (total del recibo)',fmt(total+desc)]);
   if(PEND.referencia) filas.push(['Referencia',PEND.referencia]);
   if(PEND.observacion) filas.push(['Observaciones',PEND.observacion]);
   filas.push(['Saldo después', queda<0 ? fmt(-queda)+' a favor' : fmt(queda)]);

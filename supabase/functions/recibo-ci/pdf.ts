@@ -216,7 +216,18 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
   }
   for (const l of lineas.filter((l) => l.concepto !== "canon")) filas.push([l.descripcion || l.concepto, "", Number(l.valor)]);
   if (canonTotal - aplicado > 0) filas.push(["Saldo a favor del arrendatario", "se aplicará a los siguientes cánones", canonTotal - aplicado]);
-  for (const [a, b, v] of filas) {
+  // Descuentos que hizo el administrador del inmueble antes de transferir (cruce con sus cuentas)
+  const cruces: J[] = d.cruces || [];
+  const descuentos = cruces.reduce((s, z) => s + Number(z.valor), 0);
+  const filasDesc: [string, string, number][] = cruces.map((z) => {
+    if (z.tipo_gasto === "comision_administracion") {
+      let det = `${z.tercero}${z.numero ? ", factura " + z.numero : ""}`;
+      if (Number(z.retefuente) > 0) det += ` (total ${cop(Number(z.subtotal) + Number(z.iva))}, menos retención ${cop(z.retefuente)})`;
+      return ["Menos: comisión del administrador", det, -Number(z.valor)];
+    }
+    return ["Menos: costo de la transferencia", `descontado por ${z.tercero}`, -Number(z.valor)];
+  });
+  for (const [a, b, v] of [...filas, ...filasDesc]) {
     txt(a, cx[0], y, R, 9.5);
     const fb = partir(b, R, 9, cx[2] - cx[1] - 30 * MM);
     fb.forEach((f, i) => txt(f, cx[1], y - i * 4.3 * MM, R, 9));
@@ -230,8 +241,11 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
     der(val, cx[2], y, bold ? B : R, bold ? 9.5 : 9);
     y -= 5.2 * MM;
   };
-  tot("Total del recibo", cop(total), true);
-  if (ret) { tot("Retención en la fuente practicada", cop(-ret)); tot("Total recibido", cop(total - ret), true); }
+  const recibido = total - ret - descuentos;
+  tot(descuentos ? "Total del canon pagado" : "Total del recibo", cop(total), true);
+  if (ret) tot("Retención en la fuente practicada", cop(-ret));
+  if (descuentos) tot("Descontado por el administrador", cop(-descuentos));
+  if (ret || descuentos) tot("Total recibido", cop(recibido), true);
   if (cob.saldo_antes !== null && cob.saldo_antes !== undefined && k.codigo) {
     const sa = Number(cob.saldo_antes), sd = sa - canonTotal;
     const fmt = (s: number) => s > 0 ? "debe " + cop(s) : s < 0 ? cop(-s) + " a favor" : "0 COP";
@@ -239,10 +253,11 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
     tot("Saldo después del pago", fmt(sd));
   }
   y -= 3 * MM;
-  txt(`Son: ${letras(total)} PESOS M/CTE.`, M, y, R, 9);
+  txt(`Son: ${letras(descuentos ? recibido : total)} PESOS M/CTE.`, M, y, R, 9);
   y -= 7 * MM;
   const decl = `${tit.nombre} declara haber recibido de ${d.pagador.nombre} la suma de ${cop(total)}` +
     (ret ? `, de los cuales ${cop(ret)} corresponden a la retención en la fuente practicada por el arrendatario` : "") +
+    (descuentos ? `; de esa suma, ${cop(descuentos)} los descontó ${cruces[0].tercero}, administrador del inmueble, por su comisión y gastos, y ${cop(recibido)} ingresaron por ${(MEDIOS[d.medio] ?? d.medio).toLowerCase()}` : "") +
     ", por los conceptos y periodos indicados.";
   for (const f of partir(decl, R, 9, W - 2 * M)) { txt(f, M, y, R, 9); y -= 4.3 * MM; }
   y -= 6 * MM;
