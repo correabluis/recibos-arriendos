@@ -258,8 +258,13 @@ async function abrir(id){
   const e = DET.edades||{};
   $('kEdades').innerHTML = [['0–30 días',e.d0_30],['31–60',e.d31_60],['61–90',e.d61_90],['Más de 90',e.d90]]
     .map(([t,v])=>`<div>${t}<span>${fmt(v||0)}</span></div>`).join('');
-  $('kMov').innerHTML = '<table><tr><th>Fecha</th><th>Detalle</th><th class="r">Cargo</th><th class="r">Abono</th></tr>' +
-    (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td></tr>`).join('') + '</table>' +
+  const drive = id => `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`;
+  const enlace = m => m.factura_drive ? `<a href="${drive(m.factura_drive)}" target="_blank" rel="noopener">Factura ${esc(m.factura||'')}</a>`
+    : m.pdf_drive ? `<a href="${drive(m.pdf_drive)}" target="_blank" rel="noopener">PDF</a>`
+    : m.pdf_guardado ? `<button type="button" class="link" data-pdf="${m.comprobante_id}">PDF</button>`
+    : (m.factura ? `<span class="muted">FV ${esc(m.factura)}</span>` : '');
+  $('kMov').innerHTML = '<table><tr><th>Fecha</th><th>Detalle</th><th class="r">Cargo</th><th class="r">Abono</th><th>Soporte</th></tr>' +
+    (DET.movimientos||[]).map(m=>`<tr><td>${fecha(m.fecha)}</td><td>${esc(m.detalle)}</td><td class="r">${m.cargo?fmt(m.cargo):''}</td><td class="r">${m.abono?fmt(m.abono):''}</td><td>${enlace(m)}</td></tr>`).join('') + '</table>' +
     ((DET.pruebas||[]).length ? '<p class="muted" style="margin-top:8px">Recibos de prueba de este contrato: ' + DET.pruebas.map(p=>`${esc(p.codigo)} (${fmt(p.valor)}${p.estado==='anulado'?', anulado':''})`).join(', ') + '</p>' : '');
   const adm = DET.administrador, des = DET.descuentos||[];
   $('kSub').textContent += adm ? ` · Administración: por agencia (${adm.nombre}); no se le escribe al arrendatario` : ' · Administración: directa';
@@ -269,6 +274,7 @@ async function abrir(id){
     $('admFact').innerHTML = des.length ? des.map(x=>`<label style="display:flex;gap:8px;align-items:flex-start;font-weight:400"><input type="checkbox" class="admX" data-id="${x.id}" data-v="${Number(x.saldo)}" checked style="width:auto;margin-top:3px"><span>${x.numero?('Factura '+esc(x.numero)):esc(x.tipo)} del ${fecha(x.fecha)}: <b>${fmt(x.saldo)}</b><br><span class="muted">${esc(x.descripcion||'')}</span></span></label>`).join('')
       : '<p class="muted">No hay facturas del administrador pendientes por descontar.</p>';
   }
+  $('kMov').querySelectorAll('[data-pdf]').forEach(b=>b.onclick=async()=>{ b.textContent='…'; try{ const p=await procesarRecibo(Number(b.dataset.pdf), true); window.open(p.url,'_blank','noopener'); b.textContent='PDF'; }catch(e){ b.textContent='Error'; } });
   const chips = [];
   if(s>0) chips.push(['Saldo', s]);
   if(DET.canon_actual && Number(DET.canon_actual)!==s) chips.push(['Canon', DET.canon_actual]);
