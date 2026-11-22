@@ -84,7 +84,7 @@
   <!-- App -->
   <section id="vApp" class="hide">
     <div id="banner" class="banner hide"><b>Modo prueba.</b> Estos recibos no son reales ni cambian saldos: hasta el <span id="fCorte"></span> siga usando también el formulario de siempre.</div>
-    <div class="tabs"><button id="tRec" class="on">Registrar pago</button><button id="tList">Recibos</button></div>
+    <div class="tabs"><button id="tRec" class="on">Registrar pago</button><button id="tList">Recibos</button><button id="tCaja">Dinero en poder</button></div>
 
     <div id="pRec">
       <div id="selK">
@@ -142,6 +142,8 @@
     <div id="pList" class="hide">
       <div class="card"><div id="listaR" class="muted">Cargando…</div></div>
     </div>
+
+    <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
 </main>
 
@@ -368,13 +370,65 @@ function textoEnvio(e){
 }
 
 // ---------- Lista de recibos ----------
-function tab(lista){
-  $('tRec').classList.toggle('on',!lista); $('tList').classList.toggle('on',lista);
-  show($('pRec'),!lista); show($('pList'),lista);
-  if(lista) cargaRecibos();
+function tab(cual){
+  [['tRec','pRec'],['tList','pList'],['tCaja','pCaja']].forEach(([b,p])=>{ $(b).classList.toggle('on', b===cual); show($(p), b===cual); });
+  if(cual==='tList') cargaRecibos();
+  if(cual==='tCaja') cargaCajas();
 }
-$('tRec').onclick = () => tab(false);
-$('tList').onclick = () => tab(true);
+$('tRec').onclick = () => tab('tRec');
+$('tList').onclick = () => tab('tList');
+$('tCaja').onclick = () => tab('tCaja');
+
+// ---------- Dinero en poder del cobrador y entregas ----------
+async function procesarEntrega(id, soloPdf){
+  const { data:{ session } } = await sb.auth.getSession();
+  const r = await fetch(SB_URL + '/functions/v1/recibo-ci', { method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + session.access_token, 'apikey': SB_KEY },
+    body: JSON.stringify({ entrega_id: id, soloPdf: !!soloPdf }) });
+  const j = await r.json().catch(()=>({ error:'Respuesta inválida' }));
+  if(!r.ok || j.error) throw new Error(j.error || ('Error ' + r.status));
+  return j;
+}
+async function cargaCajas(){
+  $('listaC').innerHTML = '<div class="card muted">Cargando…</div>';
+  const { data, error } = await sb.rpc('rc_cajas');
+  if(error) return $('listaC').innerHTML = `<div class="card">${esc(limpiaErr(error))}</div>`;
+  if(!data.length) return $('listaC').innerHTML = '<div class="card muted">No hay cajas de cobro a su cargo.</div>';
+  const admin = CTX.rol==='admin';
+  $('listaC').innerHTML = data.map(c=>`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(c.codigo)}</h2><span class="amt" style="font-size:20px">${fmt(c.saldo)}</span></div>
+    <div class="muted">${admin?esc(c.responsable||'')+' · ':''}efectivo recaudado por cuenta de ${esc(c.titular_nombre)}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</div>
+    ${(c.recibos||[]).length?'<table style="margin-top:8px">'+c.recibos.map(r=>`<tr><td>${esc(r.codigo)}<div class="muted">${fecha(r.fecha)} · ${esc(r.pagador||'')}</div></td><td class="r amt">${fmt(r.valor)}</td></tr>`).join('')+'</table>':'<p class="muted">Sin recibos pendientes de entregar.</p>'}
+    ${admin && Number(c.saldo)>0 ? `<details style="margin-top:8px"><summary><b>Recibí la entrega</b></summary>
+      <label>Valor recibido (COP)</label><input class="eV" inputmode="numeric" value="${fmt(c.saldo).replace(' COP','')}">
+      <label>A dónde fue el dinero</label><select class="eD">${(c.destinos||[]).map(d=>`<option value="${d.id}" data-t="${d.tipo}">${d.tipo==='caja'?'Efectivo entregado a mí ('+esc(d.codigo)+')':'Consignado en '+esc(d.codigo)}</option>`).join('')}</select>
+      <div class="eRw hide"><label>Referencia de la consignación</label><input class="eR" maxlength="60"></div>
+      <label>Observaciones (opcional)</label><input class="eO" maxlength="200">
+      <div class="eM"></div><div style="height:8px"></div>
+      <button class="btn eB" data-caja="${c.id}" data-cod="${esc(c.codigo)}">Confirmar entrega</button></details>` : ''}
+    ${(c.entregas||[]).length?'<details style="margin-top:8px"><summary>Entregas recientes</summary><table>'+c.entregas.map(e=>`<tr><td>${esc(e.codigo)}<div class="muted">${fecha(e.fecha)} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · ${e.confirmado?'confirmada por el cobrador':'sin confirmar'}</div></td><td class="r"><span class="amt">${fmt(e.valor)}</span><br><button class="link" data-en="${e.id}">PDF</button></td></tr>`).join('')+'</table></details>':''}
+  </div>`).join('');
+  $('listaC').querySelectorAll('.eV').forEach(i=>i.addEventListener('input', e=>{ const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
+  $('listaC').querySelectorAll('.eD').forEach(sel=>{ const f=()=>show(sel.parentElement.querySelector('.eRw'), sel.selectedOptions[0]?.dataset.t!=='caja'); sel.onchange=f; f(); });
+  $('listaC').querySelectorAll('[data-en]').forEach(b=>b.onclick=async()=>{ b.textContent='…'; try{ const p=await procesarEntrega(Number(b.dataset.en), true); window.open(p.url,'_blank','noopener'); b.textContent='PDF'; }catch(e){ b.textContent='Error'; } });
+  $('listaC').querySelectorAll('.eB').forEach(b=>b.onclick=async()=>{
+    const box = b.parentElement, m = box.querySelector('.eM');
+    const valor = num(box.querySelector('.eV').value), dest = Number(box.querySelector('.eD').value);
+    const esBanco = box.querySelector('.eD').selectedOptions[0]?.dataset.t!=='caja', ref = box.querySelector('.eR').value.trim();
+    if(!valor) return msg(m,'Escriba el valor.');
+    if(esBanco && !ref) return msg(m,'Escriba la referencia de la consignación.');
+    if(!confirm(`¿Confirma que recibió ${fmt(valor)} de la caja ${b.dataset.cod}?`)) return;
+    b.disabled = true; msg(m,'Registrando…',true);
+    const { data, error } = await sb.rpc('rc_entregar', { p: { caja_id:Number(b.dataset.caja), valor, destino_id:dest, referencia:ref, observacion:box.querySelector('.eO').value.trim() } });
+    if(error){ b.disabled=false; return msg(m, limpiaErr(error)); }
+    try {
+      const p = await procesarEntrega(data.id);
+      const env = p.envio?.estado==='enviado' ? `Comprobante enviado por WhatsApp a ${p.envio.a} (${p.envio.para}).` : p.envio?.estado==='error' ? 'WhatsApp no enviado: '+p.envio.error : '';
+      m.innerHTML = `<div class="msg ok">Entrega ${esc(data.codigo)} registrada${data.es_prueba?' (prueba)':''}. ${esc(env)}<br><a href="${esc(p.url)}" target="_blank" rel="noopener">Ver comprobante</a></div>`;
+    } catch(e) { msg(m, `Entrega ${data.codigo} registrada, pero el PDF falló: ${e.message}`); }
+    setTimeout(cargaCajas, 6000);
+  });
+}
 
 async function cargaRecibos(){
   $('listaR').textContent = 'Cargando…';

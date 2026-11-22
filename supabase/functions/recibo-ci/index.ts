@@ -4,7 +4,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.4";
 import { Buffer } from "node:buffer";
-import { generarPdf, puntos } from "./pdf.ts";
+import { generarPdf, generarPdfEntrega, puntos } from "./pdf.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -43,10 +43,11 @@ Deno.serve(async (req) => {
     if (eu || !u?.user) return json({ error: "Sesión no válida" }, 401);
     const uid = u.user.id;
     const body = await req.json().catch(() => ({}));
+    const [usr] = await sql`select rol, tercero_id from maestros.usuario where user_id = ${uid} and activo`;
+    if (body.entrega_id) return await procesarEntrega(Number(body.entrega_id), uid, usr, body);
     const id = Number(body.id);
     if (!id) return json({ error: "Falta el id del comprobante" }, 400);
 
-    const [usr] = await sql`select rol, tercero_id from maestros.usuario where user_id = ${uid} and activo`;
     const [c] = await sql`select id, creado_por, tercero_id, es_prueba, estado from tesoreria.comprobante where id = ${id} and tipo = 'CI'`;
     if (!usr || !c) return json({ error: "Comprobante no disponible" }, 404);
     if (usr.rol !== "admin" && c.creado_por !== uid) return json({ error: "Sin permiso sobre este comprobante" }, 403);
@@ -127,3 +128,69 @@ Deno.serve(async (req) => {
     return json({ error: String((e as Error)?.message || e) }, 500);
   }
 });
+
+// ================= Comprobante de entrega de efectivo (EN) =================
+// deno-lint-ignore no-explicit-any
+async function procesarEntrega(id: number, uid: string, usr: any, body: any) {
+  if (!usr) return json({ error: "Usuario no autorizado" }, 403);
+  const [{ d }] = await sql`select tesoreria.fn_datos_entrega(${id}) as d`;
+  if (!d) return json({ error: "Entrega no disponible" }, 404);
+  if (usr.rol !== "admin" && d.entrega?.id !== usr.tercero_id) return json({ error: "Sin permiso sobre esta entrega" }, 403);
+  const [t] = await sql`select confirmado_en from tesoreria.traslado where id = ${id}`;
+  d.confirmado_en = t?.confirmado_en ?? null;
+  const [logo] = await sql`select logo, logo_mime from maestros.entidad_propia where codigo = ${d.titular.codigo}`;
+  const bytes = await generarPdfEntrega(d, logo?.logo ? { bytes: new Uint8Array(logo.logo), mime: logo.logo_mime || "image/jpeg" } : null);
+  const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const fp = String(d.fecha);
+  const anulado = d.estado === "anulado";
+  const nombreArchivo = `${fp.replace(/-/g, "")} Entrega ${sinTildes(d.entrega?.nombre || "")} $${puntos(d.valor)} ${d.codigo}${anulado ? " ANULADO" : ""}.pdf`;
+  const ruta = `${d.titular.codigo}/${fp.slice(0, 7)}/${d.codigo}${anulado ? "-ANULADO" : ""}${d.confirmado_en ? "-CONFIRMADO" : ""}.pdf`;
+  const up = await sb.storage.from("recibos").upload(ruta, bytes, { contentType: "application/pdf", upsert: true });
+  if (up.error) return json({ error: "No se pudo guardar el PDF: " + up.error.message }, 500);
+  if (!anulado) await sql`update tesoreria.traslado set pdf_storage_path = ${ruta}, pdf_sha256 = ${sha} where id = ${id} and pdf_sha256 is null`;
+  const { data: firmado } = await sb.storage.from("recibos").createSignedUrl(ruta, 7 * 24 * 3600, { download: nombreArchivo });
+  const url = firmado?.signedUrl;
+
+  let envio: Record<string, unknown> = { estado: "omitido" };
+  const yaEnviado = (await sql`select 1 from tesoreria.traslado_envio where traslado_id = ${id} and mensaje_id is not null limit 1`).length > 0;
+  if (anulado) envio = { estado: "no_aplica", motivo: "entrega anulada" };
+  else if (body.soloPdf) envio = { estado: "omitido" };
+  else if (yaEnviado && !(body.reenviar && usr.rol === "admin")) envio = { estado: "ya_enviado" };
+  else {
+    const destId = d.es_prueba ? usr.tercero_id : d.entrega?.id;
+    const [dest] = await sql`select t.id, coalesce(t.nombre_trato, t.primer_nombre, t.nombre_mostrar) as nombre,
+        (select valor from maestros.tercero_contacto k where k.tercero_id = t.id and k.vigente and k.tipo = 'celular'
+          order by k.para_whatsapp desc, k.principal desc, k.id limit 1) as celular
+      from maestros.tercero t where t.id = ${destId}`;
+    const para = celularE164(dest?.celular);
+    const key = Deno.env.get("BIRD_API_KEY");
+    const params = Object.fromEntries((await sql`select clave, valor from maestros.parametro_texto where clave in ('whatsapp_remitente','plantilla_entrega','bird_region')`).map((r) => [r.clave, r.valor]));
+    let error: string | null = null, mensajeId: string | null = null;
+    if (!para) error = "El destinatario no tiene celular válido en Terceros";
+    else if (!key) error = "Falta la llave de Bird (BIRD_API_KEY) en Supabase";
+    else if (!url) error = "No se pudo crear el enlace del PDF";
+    else {
+      const nombre = String(dest.nombre || "").toLowerCase().replace(/^./, (x: string) => x.toUpperCase());
+      let asunto = `la entrega de ${puntos(d.valor)} COP del efectivo recaudado por cuenta de ${d.titular.nombre}`;
+      if (d.es_prueba) asunto = "PRUEBA (no válido): " + asunto;
+      const region = String(key).match(/^b[km]_(\w+?)_/)?.[1] || params.bird_region || "us1";
+      const r = await fetch(`https://${region}.platform.bird.com/v1/whatsapp/messages`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "Idempotency-Key": `en/${id}${body.reenviar ? "/" + Date.now() : ""}` },
+        body: JSON.stringify({
+          from: params.whatsapp_remitente, to: para, reference: d.codigo,
+          tags: [{ name: "tipo", value: "comprobante_entrega" }],
+          template: { slug: params.plantilla_entrega, language: "es", parameters: {
+            header_url: url, header_filename: nombreArchivo, nombre, documento: `Comprobante de entrega ${d.codigo}`, asunto } },
+        }),
+      });
+      const res = await r.json().catch(() => ({}));
+      if (r.ok) mensajeId = res.id || res.message_id || "aceptado";
+      else error = `Bird ${r.status}: ${(res?.detail || res?.message || res?.title || JSON.stringify(res)).toString().slice(0, 300)}`;
+    }
+    await sql`insert into tesoreria.traslado_envio (traslado_id, para_tercero_id, para_ultimos4, enviado_en, mensaje_id, error, es_prueba)
+      values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error}, ${d.es_prueba})`;
+    envio = mensajeId ? { estado: "enviado", para: "****" + para!.slice(-4), a: d.es_prueba ? "quien registró (prueba)" : "cobrador" } : { estado: "error", error };
+  }
+  return json({ ok: true, codigo: d.codigo, url, archivo: nombreArchivo, envio });
+}

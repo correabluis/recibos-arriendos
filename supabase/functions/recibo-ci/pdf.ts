@@ -307,3 +307,124 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
   }
   return await pdf.save();
 }
+
+// ================= Comprobante de entrega de efectivo (EN) =================
+export async function generarPdfEntrega(d: J, logo?: { bytes: Uint8Array; mime: string } | null): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.setTitle(d.codigo);
+  pdf.setAuthor(d.titular.nombre);
+  pdf.setProducer("Recibos de arriendo (Supabase)");
+  const page: PDFPage = pdf.addPage([612, 792]);
+  const R = await pdf.embedFont(StandardFonts.Helvetica);
+  const B = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const W = 612, H = 792, M = 18 * MM;
+  const txt = (s: string, x: number, y: number, f: PDFFont, size: number, color = TINTA) => page.drawText(s, { x, y, font: f, size, color });
+  const der = (s: string, x: number, y: number, f: PDFFont, size: number, color = TINTA) => page.drawText(s, { x: x - f.widthOfTextAtSize(s, size), y, font: f, size, color });
+  let y = H - M;
+  const tit = d.titular;
+  let x0 = M;
+  const conLogo = !!(logo && tit.tipo_persona === "juridica");
+  if (conLogo) {
+    const img = logo!.mime.includes("png") ? await pdf.embedPng(logo!.bytes) : await pdf.embedJpg(logo!.bytes);
+    const h = 22 * MM, w = h * img.width / img.height;
+    page.drawImage(img, { x: M, y: y - h, width: w, height: h });
+    x0 = M + w + 5 * MM;
+  }
+  if (d.es_prueba) der("ENTREGA DE PRUEBA · SIN VALIDEZ", W - M, H - M + 3 * MM, B, 9, NARANJA);
+  txt(tit.nombre, x0, y - 6 * MM, B, 15);
+  txt(`${doc(tit)} · COMPROBANTE DE ENTREGA DE EFECTIVO`, x0, y - 11 * MM, R, 8.5, GRIS);
+  der(d.codigo, W - M, y - 6 * MM, B, 15);
+  const cb = bogota(d.creado_en);
+  der(`Medellín, ${cb.d} de ${MESES[cb.m - 1]} de ${cb.y}`, W - M, y - 11 * MM, R, 8.5, GRIS);
+  y -= conLogo ? 26 * MM : 15 * MM;
+  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 1.2, color: TINTA });
+  y -= 8 * MM;
+
+  const en = d.entrega || {}, rc = d.recibe || {}, de = d.destino || {};
+  let destino: string;
+  if (de.tipo === "caja") destino = `Efectivo entregado a ${rc.nombre} (caja ${de.codigo})`;
+  else destino = `Consignado en la cuenta de ${de.tipo} ${de.banco || ""} ****${de.ultimos4 || String(de.codigo || "").replace(/\D/g, "").slice(-4)}`;
+  const campos: [string, string][] = [
+    ["Fecha de la entrega:", fechaLarga(d.fecha)],
+    ["Entregó:", `${en.nombre || ""}${en.num_doc ? " · " + doc(en) : ""}`],
+    ["Caja:", `${d.caja.codigo} · efectivo recaudado por cuenta de ${tit.nombre}`],
+    ["Destino:", destino],
+  ];
+  if (d.referencia) campos.push(["Referencia:", d.referencia]);
+  if (d.observacion) campos.push(["Observaciones:", d.observacion]);
+  for (const [et, val] of campos) {
+    txt(et, M, y, B, 9.5);
+    const fs = partir(String(val ?? ""), R, 9.5, W - 2 * M - 42 * MM);
+    fs.forEach((f, i) => txt(f, M + 42 * MM, y - i * 4.6 * MM, R, 9.5));
+    y -= Math.max(1, fs.length) * 4.6 * MM + 1.6 * MM;
+  }
+  y -= 4 * MM;
+
+  const cx = [M, M + 30 * MM, M + 56 * MM, W - M];
+  const corta = (f: string) => { const { y: a, m, d: dd } = ymd(f); return `${dd} ${MES3[m - 1]} ${a}`; };
+  txt("RECIBO", cx[0], y, B, 8, GRIS); txt("FECHA", cx[1], y, B, 8, GRIS); txt("PAGADO POR", cx[2], y, B, 8, GRIS); der("VALOR", cx[3], y, B, 8, GRIS);
+  y -= 2.5 * MM;
+  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.6, color: TINTA });
+  y -= 5 * MM;
+  const recibos: J[] = d.recibos || [];
+  if (!recibos.length) { txt("Saldo que venía en la caja", cx[0], y, R, 9.5); y -= 6.5 * MM; }
+  for (const r of recibos) {
+    txt(String(r.codigo), cx[0], y, R, 9); txt(corta(r.fecha), cx[1], y, R, 9);
+    txt(partir(String(r.pagador || ""), R, 9, cx[3] - cx[2] - 28 * MM)[0], cx[2], y, R, 9); der(cop(r.valor), cx[3], y, R, 9);
+    y -= 5.5 * MM;
+  }
+  page.drawLine({ start: { x: M, y: y + MM }, end: { x: W - M, y: y + MM }, thickness: 0.6, color: LINEA });
+  y -= 4 * MM;
+  const tot = (et: string, val: string, bold = false) => { txt(et, cx[2], y, bold ? B : R, bold ? 9.5 : 9); der(val, cx[3], y, bold ? B : R, bold ? 9.5 : 9); y -= 5.2 * MM; };
+  const antes = Number(d.saldo_antes || 0), valor = Number(d.valor);
+  tot("Efectivo en poder antes de la entrega", cop(antes));
+  tot("Valor entregado", cop(valor), true);
+  tot("Queda en poder del cobrador", cop(antes - valor));
+  y -= 3 * MM;
+  txt(`Son: ${letras(valor)} PESOS M/CTE.`, M, y, R, 9);
+  y -= 7 * MM;
+  const decl = `${rc.nombre} declara haber recibido de ${en.nombre} la suma de ${cop(valor)} en efectivo, recaudada por cuenta de ${tit.nombre}` +
+    (de.tipo === "caja" ? "." : ", consignada en la cuenta indicada.");
+  for (const f of partir(decl, R, 9, W - 2 * M)) { txt(f, M, y, R, 9); y -= 4.3 * MM; }
+  y -= 6 * MM;
+
+  const bw = (W - 2 * M - 6 * MM) / 2, bh = 38 * MM;
+  const ap = aparato(d.firma_user_agent);
+  const cajas: [string, string, string, string | null, string][] = [
+    ["ENTREGADO POR", en.nombre || "", doc(en), d.confirmado_en ? tsBogota(d.confirmado_en) : null,
+      d.confirmado_en ? "Botón RECIBIDO por WhatsApp al comprobante de entrega" : "Confirma con el botón RECIBIDO del mensaje de WhatsApp que acompaña este comprobante"],
+    ["RECIBIDO POR", rc.nombre || "", doc(rc), tsBogota(d.creado_en), "Formulario «Recibos de arriendo»" + (ap ? ` desde ${ap}` : "") + ". Usuario verificado con código enviado a su correo"],
+  ];
+  cajas.forEach(([cab, nom, dc, cuando, mf], i) => {
+    const bx = M + i * (bw + 6 * MM);
+    page.drawRectangle({ x: bx, y: y - bh, width: bw, height: bh, borderColor: LINEA, borderWidth: 0.8 });
+    txt(cab, bx + 3 * MM, y - 5 * MM, B, 7.5, GRIS);
+    let yy = y - 10.5 * MM;
+    if (cuando) {
+      const sello = "FIRMADO ELECTRÓNICAMENTE";
+      const sw = B.widthOfTextAtSize(sello, 7.5) + 4 * MM;
+      page.drawRectangle({ x: bx + 3 * MM, y: yy - 1.6 * MM, width: sw, height: 5 * MM, color: VERDE });
+      txt(sello, bx + 5 * MM, yy, B, 7.5, BLANCO);
+      yy -= 6 * MM;
+      txt(nom, bx + 3 * MM, yy, B, 10, VERDE);
+    } else {
+      txt("PENDIENTE DE CONFIRMACIÓN", bx + 3 * MM, yy, B, 7.5, NARANJA);
+      yy -= 6 * MM;
+      txt(nom, bx + 3 * MM, yy, B, 9.5);
+    }
+    yy -= 4.5 * MM;
+    if (dc) { txt(dc, bx + 3 * MM, yy, R, 8); yy -= 4 * MM; }
+    if (cuando) { txt(`Fecha y hora: ${cuando} (hora Colombia)`, bx + 3 * MM, yy, R, 8); yy -= 4 * MM; }
+    for (const f of partir(`Medio: ${mf}`, R, 8, bw - 6 * MM)) { txt(f, bx + 3 * MM, yy, R, 8); yy -= 3.8 * MM; }
+  });
+  y -= bh + 6 * MM;
+  const pie = "Comprobante registrado y firmado electrónicamente (Ley 527 de 1999). Los datos personales se tratan para la administración de los contratos de arrendamiento (Ley 1581 de 2012).";
+  for (const f of partir(pie, R, 7.5, W - 2 * M)) { txt(f, M, y, R, 7.5, GRIS); y -= 3.6 * MM; }
+  if (d.estado === "anulado") {
+    const t = "ANULADO", size = 110, w = B.widthOfTextAtSize(t, size);
+    const a = 35 * Math.PI / 180;
+    page.drawText(t, { x: W / 2 - (w / 2) * Math.cos(a), y: H / 2 - (w / 2) * Math.sin(a), size, font: B, color: rgb(0.75, 0.1, 0.1), opacity: 0.25, rotate: degrees(35) });
+    partir(`ANULADO. Motivo: ${d.motivo_anulacion || ""}`, R, 9, W - 2 * M).forEach((f, i) => txt(f, M, M + 8 * MM - i * 4.2 * MM, B, 9, ROJO));
+  }
+  return await pdf.save();
+}
