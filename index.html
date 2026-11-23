@@ -261,6 +261,11 @@ async function abrir(id){
   const s = Number(DET.saldo);
   $('kSaldo').textContent = s>0 ? 'Debe '+fmt(s) : s<0 ? fmt(-s)+' a favor' : 'Al día';
   $('kSaldo').className = 'amt ' + (s>0?'debe':s<0?'favor':'');
+  // Mientras se prueba: cómo quedaría el saldo si los recibos de prueba fueran reales (no cambia el saldo oficial)
+  const pr = (DET.pruebas||[]).filter(p=>p.estado!=='anulado').reduce((a,p)=>a+Number(p.valor||0),0);
+  let kp = $('kSaldoPrueba'); if(!kp){ kp=document.createElement('div'); kp.id='kSaldoPrueba'; kp.className='muted'; kp.style.cssText='text-align:right;margin-top:2px'; $('kSaldo').parentElement.after(kp); }
+  const q = s - pr;
+  kp.innerHTML = pr ? `Con los recibos de prueba quedaría: <b class="${q>0?'debe':q<0?'favor':''}">${q>0?'Debe '+fmt(q):q<0?fmt(-q)+' a favor':'Al día'}</b>` : '';
   const e = DET.edades||{};
   $('kEdades').innerHTML = [['0–30 días',e.d0_30],['31–60',e.d31_60],['61–90',e.d61_90],['Más de 90',e.d90]]
     .map(([t,v])=>`<div>${t}<span>${fmt(v||0)}</span></div>`).join('');
