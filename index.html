@@ -460,7 +460,7 @@ async function cargaCajas(){
     ${(c.entregas||[]).length?'<details style="margin-top:10px"><summary>Entregas recientes</summary>'+c.entregas.map(e=>`<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px">
       <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num">${esc(e.codigo)}</span><span class="money">${fmt(e.valor)}</span>
       <span class="chips"><span class="chip ok">Entregado</span><span class="chip ${e.confirmado?'ok':'pend'}">${e.confirmado?'Confirmada por el cobrador':'Sin confirmar'}</span></span>
-      <span class="meta">${fecha(e.fecha)} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · <button class="link" data-en="${e.id}">Ver PDF</button></span></div>
+      <span class="meta">Entregado el ${fecha(e.fecha)}${e.creado_en?' a las '+esc(new Date(e.creado_en).toLocaleTimeString('es-CO',{timeZone:'America/Bogota',hour:'numeric',minute:'2-digit'})):''} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · <button class="link" data-en="${e.id}">Ver PDF</button></span></div>
       ${(e.recibos||[]).map(r=>tarjetaRecibo(r,true,c.titular)).join('')}</div>`).join('')+'</details>':''}
   </div>`).join('');
   $('listaC').querySelectorAll('.eV').forEach(i=>i.addEventListener('input', e=>{ const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
