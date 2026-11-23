@@ -163,6 +163,7 @@
   <h2>Anular <span id="aCod"></span></h2>
   <label for="aMot">Motivo de la anulación</label>
   <textarea id="aMot" rows="3"></textarea>
+  <p class="muted" style="margin:6px 0 0">El recibo no se borra: queda con la marca «ANULADO» y el motivo. Se le avisa por WhatsApp al arrendatario y, si anula el cobrador, también al administrador.</p>
   <div id="anulMsg"></div>
   <div style="height:12px"></div>
   <div class="row"><button class="btn2" id="aNo">Cancelar</button><button class="btn" id="aSi" style="background:var(--bad);color:#2a0d0b">Anular</button></div>
@@ -365,11 +366,11 @@ $('cSi').onclick = async () => {
 };
 
 // ---------- PDF y WhatsApp (función recibo-ci) ----------
-async function procesarRecibo(id, soloPdf){
+async function procesarRecibo(id, soloPdf, avisarAnulacion){
   const { data:{ session } } = await sb.auth.getSession();
   const r = await fetch(SB_URL + '/functions/v1/recibo-ci', { method:'POST',
     headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + session.access_token, 'apikey': SB_KEY },
-    body: JSON.stringify({ id, soloPdf: !!soloPdf }) });
+    body: JSON.stringify({ id, soloPdf: !!soloPdf, avisarAnulacion: !!avisarAnulacion }) });
   const j = await r.json().catch(()=>({ error:'Respuesta inválida' }));
   if(!r.ok || j.error) throw new Error(j.error || ('Error ' + r.status));
   return j;
@@ -460,7 +461,7 @@ async function cargaRecibos(){
       ${r.estado==='anulado'&&r.motivo?`<div class="muted">Motivo: ${esc(r.motivo)}</div>`:''}</td>
     <td class="r"><span class="amt">${fmt(r.valor)}</span>
       <br><button class="link" data-p="${r.id}">PDF</button>
-      ${CTX.rol==='admin'&&r.estado==='emitido'?`<br><button class="link" data-a="${r.id}" data-c="${esc(r.codigo)}">Anular</button>`:''}</td></tr>`).join('') + '</table>';
+      ${r.puede_anular?`<br><button class="link" data-a="${r.id}" data-c="${esc(r.codigo)}">Anular</button>`:''}</td></tr>`).join('') + '</table>';
   $('listaR').querySelectorAll('[data-p]').forEach(b=>b.onclick=async()=>{ b.textContent='…'; try{ const p=await procesarRecibo(Number(b.dataset.p), true); b.outerHTML=`<a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir PDF</a>`; }catch(e){ b.textContent='Error: '+e.message; } });
   $('listaR').querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{ ANUL=Number(b.dataset.a); $('aCod').textContent=b.dataset.c; $('aMot').value=''; msg($('anulMsg'),''); show($('mAnul'),true); });
 }
@@ -473,7 +474,7 @@ $('aSi').onclick = async () => {
   const { error } = await sb.rpc('rc_anular', { p_id: ANUL, p_motivo: m });
   $('aSi').disabled = false;
   if(error) return msg($('anulMsg'), limpiaErr(error));
-  show($('mAnul'),false); try { await procesarRecibo(ANUL, true); } catch(e) {} cargaRecibos();
+  show($('mAnul'),false); try { await procesarRecibo(ANUL, true, true); } catch(e) {} cargaRecibos();
 };
 
 // ---------- Arranque ----------

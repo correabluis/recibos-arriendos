@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
     // Contratos administrados por agencia: no se le escribe al arrendatario (regla única en privado.fn_comunicar_arrendatario)
     const conAdministrador = !c.es_prueba && d.contrato?.id &&
       !(await sql`select privado.fn_comunicar_arrendatario(${d.contrato.id}) as ok`)[0].ok;
-    if (anulado) envio = { estado: "no_aplica", motivo: "comprobante anulado" };
+    if (anulado) envio = body.avisarAnulacion ? await avisarAnulacion(id, c, d, url, nombreArchivo, total) : { estado: "no_aplica", motivo: "comprobante anulado" };
     else if (conAdministrador) envio = { estado: "no_aplica", motivo: "inmueble administrado por un tercero: no se le escribe al arrendatario" };
     else if (body.soloPdf) envio = { estado: "omitido" };
     else if (yaEnviado && !(body.reenviar && usr.rol === "admin")) envio = { estado: "ya_enviado" };
@@ -146,6 +146,65 @@ Deno.serve(async (req) => {
     return json({ error: String((e as Error)?.message || e) }, 500);
   }
 });
+
+// ================= Aviso de anulación (decisión de Luis, 2026-11-23) =================
+// Al arrendatario: el recibo quedó anulado y por qué (si se le había enviado y se le puede escribir).
+// Al administrador: solo si anuló otra persona (p. ej. el cobrador), también en pruebas. En pruebas, el aviso «al arrendatario» va a quien anuló.
+const MESES_L = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const fLarga = (s: string) => { const [y, m, dd] = String(s).slice(0, 10).split("-").map(Number); return `${dd} de ${MESES_L[m - 1]} de ${y}`; };
+// deno-lint-ignore no-explicit-any
+async function avisarAnulacion(id: number, c: any, d: any, url: string | undefined, nombreArchivo: string, total: number) {
+  const key = Deno.env.get("BIRD_API_KEY");
+  if (!key || !url) return { estado: "error", error: "Falta la llave de Bird o el enlace del PDF" };
+  const params = Object.fromEntries((await sql`select clave, valor from maestros.parametro_texto where clave in ('whatsapp_remitente','plantilla_entrega','bird_region','tercero_admin_tareas')`).map((r) => [r.clave, r.valor]));
+  const [an] = await sql`select c.anulado_por, u.tercero_id, (u.rol = 'admin') as es_admin,
+      coalesce(t.nombre_trato, t.primer_nombre, t.nombre_mostrar) as nombre
+    from tesoreria.comprobante c left join maestros.usuario u on u.user_id = c.anulado_por
+    left join maestros.tercero t on t.id = u.tercero_id where c.id = ${id}`;
+  const [adm] = await sql`select t.id from maestros.tercero t where t.codigo = ${params.tercero_admin_tareas}`;
+  const contacto = async (terceroId: number) => (await sql`select t.id, t.tipo_persona, coalesce(t.nombre_trato, t.primer_nombre, t.nombre_mostrar) as nombre,
+      (select valor from maestros.tercero_contacto k where k.tercero_id = t.id and k.vigente and k.tipo = 'celular'
+        order by k.para_whatsapp desc, k.principal desc, k.id limit 1) as celular
+    from maestros.tercero t where t.id = ${terceroId}`)[0];
+  const region = String(key).match(/^b[km]_(\w+?)_/)?.[1] || params.bird_region || "us1";
+  const motivo = String(d.motivo_anulacion || "").trim();
+  const resumen = `el pago de ${puntos(total)} COP del ${fLarga(d.fecha_pago)}. Motivo de la anulación: ${motivo}`;
+  const enviar = async (destId: number, quien: string, asunto: string) => {
+    const dest = await contacto(destId);
+    const para = celularE164(dest?.celular);
+    let mensajeId: string | null = null, error: string | null = null;
+    if (!para) error = "Sin celular válido en Terceros";
+    else {
+      const nombre = dest.tipo_persona === "juridica" ? dest.nombre : String(dest.nombre || "").toLowerCase().replace(/^./, (x: string) => x.toUpperCase());
+      const r = await fetch(`https://${region}.platform.bird.com/v1/whatsapp/messages`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "Idempotency-Key": `an/${id}/${quien}` },
+        body: JSON.stringify({
+          from: params.whatsapp_remitente, to: para, reference: d.codigo + "-ANULADO",
+          tags: [{ name: "tipo", value: "anulacion_comprobante" }],
+          template: { slug: params.plantilla_entrega, language: "es", parameters: {
+            header_url: url, header_filename: nombreArchivo, nombre,
+            documento: `comprobante de ingreso ${d.codigo} ANULADO${c.es_prueba ? " (PRUEBA, no válido)" : ""}`, asunto } },
+        }),
+      });
+      const res = await r.json().catch(() => ({}));
+      if (r.ok) mensajeId = res.id || res.message_id || "aceptado";
+      else error = `Bird ${r.status}: ${(res?.detail || res?.message || res?.title || JSON.stringify(res)).toString().slice(0, 300)}`;
+    }
+    await sql`insert into tesoreria.comprobante_envio (comprobante_id, para_tercero_id, para_ultimos4, enviado_en, mensaje_id, error, es_prueba)
+      values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error ? "Aviso de anulación: " + error : null}, ${c.es_prueba})`;
+    return { quien, estado: mensajeId ? "enviado" : "error", para: para ? "****" + para.slice(-4) : null, error };
+  };
+  const res: unknown[] = [];
+  // Arrendatario
+  const comunicar = c.es_prueba || !d.contrato?.id || (await sql`select privado.fn_comunicar_arrendatario(${d.contrato.id}) as ok`)[0].ok;
+  const seLeEnvio = (await sql`select 1 from tesoreria.comprobante_envio where comprobante_id = ${id} and mensaje_id is not null and error is null limit 1`).length > 0;
+  if (comunicar && (seLeEnvio || c.es_prueba)) res.push(await enviar(c.es_prueba ? an.tercero_id : c.tercero_id, "arrendatario", resumen));
+  // Administrador, si anuló otra persona
+  if (an && !an.es_admin && adm) res.push(await enviar(adm.id, "administrador",
+    `la anulación que hizo ${an.nombre} del recibo de ${d.pagador?.nombre || ""} por ${puntos(total)} COP del ${fLarga(d.fecha_pago)}. Motivo: ${motivo}`));
+  return { estado: "anulacion_avisada", avisos: res };
+}
 
 // ================= Comprobante de entrega de efectivo (EN) =================
 // deno-lint-ignore no-explicit-any
