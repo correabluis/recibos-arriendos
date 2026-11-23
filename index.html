@@ -404,7 +404,12 @@ async function cargaCajas(){
   if(error) return $('listaC').innerHTML = `<div class="card">${esc(limpiaErr(error))}</div>`;
   if(!data.length) return $('listaC').innerHTML = '<div class="card muted">No hay cajas de cobro a su cargo.</div>';
   const admin = CTX.rol==='admin';
-  $('listaC').innerHTML = data.map(c=>`<div class="card">
+  // Total por persona (como el formulario anterior): suma de las cajas de cada responsable, de todos los titulares
+  const mias = new Set((CTX.cuentas||[]).filter(x=>x.mia).map(x=>x.id));
+  const tot = {};
+  data.forEach(c=>{ const k = mias.has(c.id) ? 'Total en mi poder' : 'Total en poder de ' + (c.responsable||'el cobrador'); tot[k] = (tot[k]||0) + Number(c.saldo||0); });
+  const resumen = `<div class="card">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 10px;margin:4px 0"><b>${esc(k)}</b><span class="amt" style="font-size:22px">${fmt(v)}</span></div>`).join('')}<div class="muted">Suma de todas las cajas (todos los titulares). El detalle de cada caja está abajo.</div></div>`;
+  $('listaC').innerHTML = resumen + data.map(c=>`<div class="card">
     <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(c.codigo)}</h2><span class="amt" style="font-size:20px">${fmt(c.saldo)}</span></div>
     <div class="muted">${admin?esc(c.responsable||'')+' · ':''}efectivo recaudado por cuenta de ${esc(c.titular_nombre)}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</div>
     ${(c.recibos||[]).length?'<table style="margin-top:8px">'+c.recibos.map(r=>`<tr><td>${esc(r.codigo)}<div class="muted">${fecha(r.fecha)} · ${esc(r.pagador||'')}</div></td><td class="r amt">${fmt(r.valor)}</td></tr>`).join('')+'</table>':'<p class="muted">Sin recibos pendientes de entregar.</p>'}
