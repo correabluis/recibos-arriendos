@@ -48,7 +48,7 @@
   .msg.ok{background:var(--brand2);color:var(--brandtx)}
   .row{display:flex;gap:10px}.row>*{flex:1}
   .rec{display:grid;grid-template-columns:1fr auto;grid-template-areas:"num money" "chips chips" "ben ben" "meta meta";gap:4px 10px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px}
-  .rec .num{grid-area:num;font-weight:800;font-size:15px}.rec .money{grid-area:money;font-weight:800;font-size:16px;text-align:right}
+  .rec .num{grid-area:num;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;font-size:14px}.rec .money{grid-area:money;font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;text-align:right;white-space:nowrap}
   .rec .chips{grid-area:chips;display:flex;gap:6px;flex-wrap:wrap}.rec .ben{grid-area:ben;font-weight:700;font-size:15px}.rec .meta{grid-area:meta;font-size:12.5px;color:var(--muted);line-height:1.4}
   .chip{font-size:11px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:999px;white-space:nowrap;text-transform:uppercase}
   .chip.ok{background:var(--brand2);color:var(--brandtx)}.chip.pend{background:var(--warnbg);color:var(--warn)}.chip.mal{background:var(--badbg);color:var(--bad)}.chip.wa{background:#1c2a3d;color:#8fb6ea;white-space:normal}
@@ -433,14 +433,14 @@ async function cargaCajas(){
   const mias = new Set((CTX.cuentas||[]).filter(x=>x.mia).map(x=>x.id));
   const tot = {};
   data.forEach(c=>{ const k = mias.has(c.id) ? 'Total en mi poder' : 'Total en poder de ' + (c.responsable||'el cobrador'); tot[k] = (tot[k]||0) + Number(c.saldo||0); });
-  const resumen = `<div class="card" style="background:var(--brand2);border:2px solid var(--brand);text-align:center;padding:18px 14px">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="margin:6px 0"><div style="font-size:15px;font-weight:700;color:var(--brandtx);text-transform:uppercase;letter-spacing:.04em">${esc(k)}</div><div class="amt" style="font-size:32px;font-weight:800;color:var(--ink);margin-top:2px">${fmt(v)}</div></div>`).join('')}<div class="muted" style="margin-top:6px">Suma de todas las cajas. El detalle por titular está abajo.</div></div>`;
+  const resumen = `<div class="card" style="background:var(--brand2);border:2px solid var(--brand);text-align:center;padding:18px 14px">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="margin:6px 0"><div style="font-size:15px;font-weight:700;color:var(--brandtx);text-transform:uppercase;letter-spacing:.04em">${esc(k)}</div><div class="amt" style="font-size:32px;font-weight:800;color:var(--ink);margin-top:2px">${fmt(v)}</div></div>`).join('')}<div style="margin-top:6px;font-weight:700">${(()=>{const n=data.reduce((a,c)=>a+(c.recibos||[]).length,0);return n?`${n} recibo${n>1?'s':''} por entregar`:'Ningún recibo pendiente'})()}</div><div class="muted" style="margin-top:4px">Un recibo en efectivo queda «por entregar» hasta que Luis confirma que recibió el dinero. El detalle por titular está abajo.</div></div>`;
   // Solo se muestran las cajas con efectivo o recibos pendientes (una caja en cero no aporta y confunde)
   const conMov = data.filter(c=>Number(c.saldo||0)!==0 || (c.recibos||[]).length || (c.entregas||[]).length);
   const vacias = data.length - conMov.length;
   $('listaC').innerHTML = resumen + (conMov.length ? '' : '<div class="card muted">No hay efectivo pendiente por entregar.</div>') + conMov.map(c=>`<div class="card">
     <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num" style="font-size:16px">${esc(c.titular_nombre)}</span><span class="money" style="font-size:20px">${fmt(c.saldo)}</span>
     <span class="meta" style="grid-area:chips">${esc(c.codigo)} · ${admin?'en poder de '+esc(c.responsable||''):'en mi poder'}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</span></div>
-    ${(c.recibos||[]).length?c.recibos.map(r=>tarjetaRecibo(r,false)).join(''):'<p class="muted">Sin recibos pendientes de entregar.</p>'}
+    ${(c.recibos||[]).length?[...c.recibos].sort((x,y)=>String(x.fecha).localeCompare(String(y.fecha))||x.id-y.id).map(r=>tarjetaRecibo(r,false)).join(''):'<p class="muted">Sin recibos pendientes de entregar.</p>'}
     ${admin && Number(c.saldo)>0 ? `<details style="margin-top:8px"><summary><b>Recibí la entrega</b></summary>
       <label>Valor recibido (COP)</label><input class="eV" inputmode="numeric" value="${fmt(c.saldo).replace(' COP','')}">
       <label>A dónde fue el dinero</label><select class="eD">${(c.destinos||[]).map(d=>`<option value="${d.id}" data-t="${d.tipo}">${d.tipo==='caja'?'Efectivo entregado a mí ('+esc(d.codigo)+')':'Consignado en '+esc(d.codigo)}</option>`).join('')}</select>
