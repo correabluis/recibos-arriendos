@@ -300,7 +300,7 @@ function pintaCuentas(){
   if(!K) return;
   const ef = !!MEDIOS[$('medio').value]?.caja;
   const cs = CTX.cuentas.filter(c => c.titular===K.titular && (ef ? c.tipo==='caja' : c.tipo!=='caja'));
-  $('cuenta').innerHTML = cs.length ? cs.map(c=>`<option value="${c.id}">${esc(c.codigo)}</option>`).join('')
+  $('cuenta').innerHTML = cs.length ? cs.map(c=>`<option value="${c.id}">${esc(c.nombre||c.codigo)}${c.nombre?' · '+esc(c.codigo):''}</option>`).join('')
     : `<option value="">${ef?'No tiene caja de efectivo para este arrendador':'No hay cuenta para este arrendador'}</option>`;
 }
 $('medio').onchange = pintaCuentas;
