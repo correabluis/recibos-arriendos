@@ -414,7 +414,7 @@ async function cargaCajas(){
   const mias = new Set((CTX.cuentas||[]).filter(x=>x.mia).map(x=>x.id));
   const tot = {};
   data.forEach(c=>{ const k = mias.has(c.id) ? 'Total en mi poder' : 'Total en poder de ' + (c.responsable||'el cobrador'); tot[k] = (tot[k]||0) + Number(c.saldo||0); });
-  const resumen = `<div class="card">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 10px;margin:4px 0"><b>${esc(k)}</b><span class="amt" style="font-size:22px">${fmt(v)}</span></div>`).join('')}<div class="muted">Suma de todas las cajas (todos los titulares). El detalle de cada caja está abajo.</div></div>`;
+  const resumen = `<div class="card" style="background:var(--brand2);border:2px solid var(--brand);text-align:center;padding:18px 14px">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="margin:6px 0"><div style="font-size:15px;font-weight:700;color:var(--brandtx);text-transform:uppercase;letter-spacing:.04em">${esc(k)}</div><div class="amt" style="font-size:32px;font-weight:800;color:var(--ink);margin-top:2px">${fmt(v)}</div></div>`).join('')}<div class="muted" style="margin-top:6px">Suma de todas las cajas. El detalle por titular está abajo.</div></div>`;
   // Solo se muestran las cajas con efectivo o recibos pendientes (una caja en cero no aporta y confunde)
   const conMov = data.filter(c=>Number(c.saldo||0)!==0 || (c.recibos||[]).length || (c.entregas||[]).length);
   const vacias = data.length - conMov.length;
