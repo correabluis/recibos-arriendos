@@ -438,8 +438,8 @@ async function cargaCajas(){
   const conMov = data.filter(c=>Number(c.saldo||0)!==0 || (c.recibos||[]).length || (c.entregas||[]).length);
   const vacias = data.length - conMov.length;
   $('listaC').innerHTML = resumen + (conMov.length ? '' : '<div class="card muted">No hay efectivo pendiente por entregar.</div>') + conMov.map(c=>`<div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0">${esc(c.codigo)}</h2><span class="amt" style="font-size:20px">${fmt(c.saldo)}</span></div>
-    <div class="muted">${admin?esc(c.responsable||'')+' · ':''}efectivo recaudado por cuenta de ${esc(c.titular_nombre)}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</div>
+    <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num" style="font-size:16px">${esc(c.titular_nombre)}</span><span class="money" style="font-size:20px">${fmt(c.saldo)}</span>
+    <span class="meta" style="grid-area:chips">${esc(c.codigo)} · ${admin?'en poder de '+esc(c.responsable||''):'en mi poder'}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</span></div>
     ${(c.recibos||[]).length?c.recibos.map(r=>tarjetaRecibo(r,false)).join(''):'<p class="muted">Sin recibos pendientes de entregar.</p>'}
     ${admin && Number(c.saldo)>0 ? `<details style="margin-top:8px"><summary><b>Recibí la entrega</b></summary>
       <label>Valor recibido (COP)</label><input class="eV" inputmode="numeric" value="${fmt(c.saldo).replace(' COP','')}">
@@ -448,7 +448,11 @@ async function cargaCajas(){
       <label>Observaciones (opcional)</label><input class="eO" maxlength="200">
       <div class="eM"></div><div style="height:8px"></div>
       <button class="btn eB" data-caja="${c.id}" data-cod="${esc(c.codigo)}">Confirmar entrega</button></details>` : ''}
-    ${(c.entregas||[]).length?'<details style="margin-top:8px"><summary>Entregas recientes</summary><table>'+c.entregas.map(e=>`<tr><td>${esc(e.codigo)}<div class="muted">${fecha(e.fecha)} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · ${e.confirmado?'confirmada por el cobrador':'sin confirmar'}</div>${(e.recibos||[]).map(r=>tarjetaRecibo(r,true)).join('')}</td><td class="r"><span class="amt">${fmt(e.valor)}</span><br><button class="link" data-en="${e.id}">PDF</button></td></tr>`).join('')+'</table></details>':''}
+    ${(c.entregas||[]).length?'<details style="margin-top:10px"><summary>Entregas recientes</summary>'+c.entregas.map(e=>`<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px">
+      <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num">${esc(e.codigo)}</span><span class="money">${fmt(e.valor)}</span>
+      <span class="chips"><span class="chip ok">Entregado</span><span class="chip ${e.confirmado?'ok':'pend'}">${e.confirmado?'Confirmada por el cobrador':'Sin confirmar'}</span></span>
+      <span class="meta">${fecha(e.fecha)} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · <button class="link" data-en="${e.id}">Ver PDF</button></span></div>
+      ${(e.recibos||[]).map(r=>tarjetaRecibo(r,true)).join('')}</div>`).join('')+'</details>':''}
   </div>`).join('');
   $('listaC').querySelectorAll('.eV').forEach(i=>i.addEventListener('input', e=>{ const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
   $('listaC').querySelectorAll('.eD').forEach(sel=>{ const f=()=>show(sel.parentElement.querySelector('.eRw'), sel.selectedOptions[0]?.dataset.t!=='caja'); sel.onchange=f; f(); });
