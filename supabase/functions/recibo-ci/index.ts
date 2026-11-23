@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
         else error = `Bird ${r.status}: ${(res?.detail || res?.message || res?.title || JSON.stringify(res)).toString().slice(0, 300)}`;
       }
       await sql`insert into tesoreria.comprobante_envio (comprobante_id, para_tercero_id, para_ultimos4, enviado_en, mensaje_id, error, es_prueba)
-        values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error}, ${c.es_prueba})`;
+        values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error}, ${c.es_prueba}) on conflict do nothing`;
       envio = mensajeId ? { estado: "enviado", para: "****" + para!.slice(-4), a: c.es_prueba ? "quien emitió (prueba)" : "arrendatario" } : { estado: "error", error };
     }
     // Archivo en Drive en segundo plano (no demora la respuesta); de paso sube lo que haya quedado en cola.
@@ -192,16 +192,17 @@ async function avisarAnulacion(id: number, c: any, d: any, url: string | undefin
       else error = `Bird ${r.status}: ${(res?.detail || res?.message || res?.title || JSON.stringify(res)).toString().slice(0, 300)}`;
     }
     await sql`insert into tesoreria.comprobante_envio (comprobante_id, para_tercero_id, para_ultimos4, enviado_en, mensaje_id, error, es_prueba)
-      values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error ? "Aviso de anulación: " + error : null}, ${c.es_prueba})`;
+      values (${id}, ${dest?.id ?? null}, ${para ? para.slice(-4) : null}, ${mensajeId ? new Date() : null}, ${mensajeId}, ${error ? "Aviso de anulación: " + error : null}, ${c.es_prueba}) on conflict do nothing`;
     return { quien, estado: mensajeId ? "enviado" : "error", para: para ? "****" + para.slice(-4) : null, error };
   };
   const res: unknown[] = [];
   // Arrendatario
   const comunicar = c.es_prueba || !d.contrato?.id || (await sql`select privado.fn_comunicar_arrendatario(${d.contrato.id}) as ok`)[0].ok;
   const seLeEnvio = (await sql`select 1 from tesoreria.comprobante_envio where comprobante_id = ${id} and mensaje_id is not null and error is null limit 1`).length > 0;
-  if (comunicar && (seLeEnvio || c.es_prueba)) res.push(await enviar(c.es_prueba ? an.tercero_id : c.tercero_id, "arrendatario", resumen));
+  const yaAvisado = async (tipo: string) => (await sql`select 1 from tesoreria.comprobante_envio where comprobante_id = ${id} and tipo = ${tipo} and mensaje_id is not null limit 1`).length > 0;
+  if (comunicar && (seLeEnvio || c.es_prueba) && !(await yaAvisado("anulacion_arrendatario"))) res.push(await enviar(c.es_prueba ? an.tercero_id : c.tercero_id, "arrendatario", resumen));
   // Administrador, si anuló otra persona
-  if (an && !an.es_admin && adm) res.push(await enviar(adm.id, "administrador",
+  if (an && !an.es_admin && adm && !(await yaAvisado("anulacion_administrador"))) res.push(await enviar(adm.id, "administrador",
     `la anulación que hizo ${an.nombre} del recibo de ${d.pagador?.nombre || ""} por ${puntos(total)} COP del ${fLarga(d.fecha_pago)}. Motivo: ${motivo}`));
   return { estado: "anulacion_avisada", avisos: res };
 }
