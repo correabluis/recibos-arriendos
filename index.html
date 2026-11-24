@@ -50,6 +50,7 @@
   .rec{display:grid;grid-template-columns:1fr auto;grid-template-areas:"num money" "chips chips" "ben ben" "meta meta";gap:4px 10px;background:var(--field);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px}
   .rec .num{grid-area:num;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:700;font-size:14px}.rec .money{grid-area:money;font-family:ui-monospace,Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;text-align:right;white-space:nowrap}
   .rec .chips{grid-area:chips;display:flex;gap:6px;flex-wrap:wrap}.rec .ben{grid-area:ben;font-weight:700;font-size:15px}.rec .meta{grid-area:meta;font-size:12.5px;color:var(--muted);line-height:1.4}
+  .rec2{grid-template-areas:"ben money" "meta meta" "chips chips"}.rec2 .ben{font-size:15.5px}.rec2 .chips{margin-top:4px}
   .chip{font-size:11px;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:999px;white-space:nowrap;text-transform:uppercase}
   .chip.ok{background:var(--brand2);color:var(--brandtx)}.chip.pend{background:var(--warnbg);color:var(--warn)}.chip.mal{background:var(--badbg);color:var(--bad)}.chip.wa{background:#1c2a3d;color:#8fb6ea;white-space:normal}
   .caja{padding:0;overflow:hidden;border:2px solid var(--brand);margin-top:14px}.caja-h{background:var(--head);padding:12px 14px;border-bottom:2px solid var(--brand)}.caja-b{padding:10px 14px 14px}
@@ -155,7 +156,7 @@
 
     <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
-  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-23 · 4:32 p. m.</p>
+  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 9:40 a. m.</p>
 </main>
 
 <div class="modal hide" id="mConf"><div class="card">
@@ -418,20 +419,22 @@ function perTxt(g){ const M=['ene','feb','mar','abr','may','jun','jul','ago','se
 // Etiquetas de un recibo (las mismas del formulario anterior)
 const SOCIEDADES=['IC','LC','MSL','ITA','MKL'];
 function chipsRecibo(r, entregado, titular){
+  // Solo lo que dice algo: el estado (una sola etiqueta) y las alertas
   const ch=[];
-  ch.push(r.estado==='anulado'?'<span class="chip mal">Anulado</span>':'<span class="chip ok">Emitido</span>');
-  if(r.estado!=='anulado') ch.push(entregado?'<span class="chip ok">Entregado</span>':(r.medio==='efectivo'?'<span class="chip pend">Por entregar</span>':'<span class="chip pend">Por verificar</span>'));
+  if(r.estado==='anulado') ch.push('<span class="chip mal">Anulado</span>');
+  else if(entregado) ch.push('<span class="chip ok">Emitido · entregado</span>');
+  else ch.push(r.medio==='efectivo'?'<span class="chip pend">Emitido · por entregar</span>':'<span class="chip pend">Emitido · por verificar</span>');
   if(r.es_prueba) ch.push('<span class="chip pend">Prueba</span>');
   if(r.estado!=='anulado' && titular && SOCIEDADES.includes(titular) && !(r.cubre||[]).some(g=>g.factura)) ch.push('<span class="chip pend">Factura pendiente</span>');
-  if(r.wa_en) ch.push(`<span class="chip wa">Enviado por WhatsApp · ${esc(new Date(r.wa_en).toLocaleString('es-CO',{timeZone:'America/Bogota',dateStyle:'medium',timeStyle:'short'}))}</span>`);
-  else if(r.estado!=='anulado') ch.push('<span class="chip mal">WhatsApp no enviado</span>');
+  if(r.estado!=='anulado') ch.push(r.wa_en?'<span class="chip wa">✓ WhatsApp</span>':'<span class="chip mal">WhatsApp no enviado</span>');
   return ch;
 }
+// Tarjeta de recibo simplificada (2026-11-24): quién pagó y cuánto, de dónde, y el número con el periodo
 function tarjetaRecibo(r, entregado, titular){
-  const ch=chipsRecibo(r, entregado, titular);
-  const per=(r.cubre||[]).map(g=>(g.tipo==='canon'?'Canon de arrendamiento ':String(g.tipo).replace(/_/g,' ')+' ')+perTxt(g)).join(', ');
-  const meta=[fecha(r.fecha), MED[r.medio]||r.medio, r.referencia?'N.º '+r.referencia:'', [r.contrato,r.inmueble].filter(Boolean).join(' · '), r.direccion||'', per, r.elaboro?'recibió '+r.elaboro:''].filter(Boolean).map(esc).join(' · ');
-  return `<div class="rec"><span class="num">${esc(r.codigo)}</span><span class="money">${fmt(r.valor)}</span><span class="chips">${ch.join('')}</span><span class="ben">${esc(r.pagador||'')}</span><span class="meta">${meta}</span></div>`;
+  const per=(r.cubre||[]).filter(g=>g.tipo==='canon').map(perTxt).join(' y ');
+  const l1=[r.contrato, r.inmueble, r.direccion?r.direccion+', Medellín':''].filter(Boolean).join(' · ');
+  const l2=[r.codigo, fecha(r.fecha), (MED[r.medio]||r.medio)+(r.referencia?' '+r.referencia:''), per?'canon '+per:''].filter(Boolean).join(' · ');
+  return `<div class="rec rec2"><span class="ben">${esc(r.pagador||'')}</span><span class="money">${fmt(r.valor)}</span><span class="meta">${esc(l1)}<br>${esc(l2)}</span><span class="chips">${chipsRecibo(r, entregado, titular).join('')}</span></div>`;
 }
 async function cargaCajas(){
   $('listaC').innerHTML = '<div class="card muted">Cargando…</div>';
@@ -449,8 +452,7 @@ async function cargaCajas(){
   const vacias = data.length - conMov.length;
   $('listaC').innerHTML = resumen + (conMov.length ? '' : '<div class="card muted">No hay efectivo pendiente por entregar.</div>') + conMov.map(c=>`<div class="card caja">
     <div class="caja-h"><div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num" style="font-size:17px;font-family:inherit;color:#fff">${esc(c.titular_nombre)}</span><span class="money" style="font-size:20px;color:#fff">${fmt(c.saldo)}</span>
-    <span class="meta" style="grid-area:chips;color:#cfe9dc">${esc(c.codigo)} · ${admin?'en poder de '+esc(c.responsable||''):'en mi poder'}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</span></div></div><div class="caja-b">
-    ${(c.recibos||[]).length?`<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"><div class="muted" style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">De dónde proviene</div>${[...c.recibos].sort((x,y)=>String(x.fecha).localeCompare(String(y.fecha))||x.id-y.id).map(r=>`<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:6px 0;border-bottom:1px dashed var(--line)"><span><b>${esc(r.contrato||'')}</b> · ${esc(r.pagador||'')}</span><span class="amt" style="font-family:ui-monospace,Menlo,Consolas,monospace;white-space:nowrap">${fmt(r.valor)}</span><span class="muted" style="font-size:12.5px;grid-column:1/-1">${esc([r.inmueble,r.direccion?r.direccion+', Medellín':''].filter(Boolean).join(' · '))}</span><span class="chips" style="grid-column:1/-1;display:flex;gap:6px;flex-wrap:wrap">${chipsRecibo(r,false,c.titular).join('')}</span></div>`).join('')}</div>`:''}
+    <span class="meta" style="grid-area:chips;color:#cfe9dc">${(c.recibos||[]).length} recibo${(c.recibos||[]).length===1?'':'s'} por entregar${admin?' · en poder de '+esc(c.responsable||''):''}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</span></div></div><div class="caja-b">
     ${(c.recibos||[]).length?[...c.recibos].sort((x,y)=>String(x.fecha).localeCompare(String(y.fecha))||x.id-y.id).map(r=>tarjetaRecibo(r,false,c.titular)).join(''):'<p class="muted">Sin recibos pendientes de entregar.</p>'}
     ${admin && Number(c.saldo)>0 ? `<details style="margin-top:8px"><summary><b>Recibí la entrega</b></summary>
       <label>Valor recibido (COP)</label><input class="eV" inputmode="numeric" value="${fmt(c.saldo).replace(' COP','')}">
