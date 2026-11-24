@@ -267,7 +267,9 @@ export async function generarPdf(d: J, logo?: { bytes: Uint8Array; mime: string 
   const bw = (W - 2 * M - 6 * MM) / 2, bh = 38 * MM;
   const ap = aparato(d.firma_user_agent);
   const ua = String(d.firma_user_agent || "");
+  const navegador = /mozilla|applewebkit|android|iphone/i.test(ua);
   const medioForm = ua.startsWith("Tarea") ? `${ua}: registro automático a nombre del administrador`
+    : (ua && !navegador) ? `Registro a nombre del administrador (${ua})`
     : "Formulario «Recibos de arriendo»" + (ap ? ` desde ${ap}` : "") + ". Usuario verificado con código enviado a su correo";
   const cajas: [string, string, string, string | null, string][] = [["ELABORADO POR", el.nombre || "", doc(el), tsBogota(d.creado_en), medioForm]];
   if (d.medio === "efectivo") {
@@ -427,6 +429,61 @@ export async function generarPdfEntrega(d: J, logo?: { bytes: Uint8Array; mime: 
     const a = 35 * Math.PI / 180;
     page.drawText(t, { x: W / 2 - (w / 2) * Math.cos(a), y: H / 2 - (w / 2) * Math.sin(a), size, font: B, color: rgb(0.75, 0.1, 0.1), opacity: 0.25, rotate: degrees(35) });
     partir(`ANULADO. Motivo: ${d.motivo_anulacion || ""}`, R, 9, W - 2 * M).forEach((f, i) => txt(f, M, M + 8 * MM - i * 4.2 * MM, B, 9, ROJO));
+  }
+  return await pdf.save();
+}
+
+// ================= Soporte del banco (regla de Luis, 2026-11-24) =================
+// El comprobante y el soporte del pago van en un mismo archivo: las páginas del soporte se agregan
+// después del comprobante (imagen, PDF del banco o texto de la alerta).
+export async function unirSoportes(base: Uint8Array, soportes: J[], codigo: string): Promise<Uint8Array> {
+  if (!soportes?.length) return base;
+  const pdf = await PDFDocument.load(base);
+  const R = await pdf.embedFont(StandardFonts.Helvetica);
+  const B = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const W = 612, H = 792, M = 18 * MM;
+  const ORIGEN: Record<string, string> = { whatsapp: "recibido por WhatsApp", correo: "recibido por correo", alerta_banco: "alerta del banco", formulario: "adjuntado en el formulario", otro: "" };
+  const cabeza = (page: PDFPage, s: J, n: number) => {
+    page.drawText(`SOPORTE DEL PAGO ${soportes.length > 1 ? n + " " : ""}· ${codigo}`, { x: M, y: H - M, size: 11, font: B, color: TINTA });
+    const o = [ORIGEN[s.origen] ?? "", s.creado_en ? `registrado el ${tsBogota(s.creado_en)} (hora Colombia)` : ""].filter(Boolean).join(" · ");
+    if (o) page.drawText(o.charAt(0).toUpperCase() + o.slice(1), { x: M, y: H - M - 5 * MM, size: 8.5, font: R, color: GRIS });
+    page.drawLine({ start: { x: M, y: H - M - 8 * MM }, end: { x: W - M, y: H - M - 8 * MM }, thickness: 0.8, color: TINTA });
+    return H - M - 12 * MM;
+  };
+  let n = 0;
+  for (const s of soportes) {
+    n++;
+    const bytes = new Uint8Array(s.contenido);
+    if (s.mime === "image/jpeg" || s.mime === "image/png") {
+      const img = s.mime === "image/png" ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+      const page = pdf.addPage([W, H]);
+      const top = cabeza(page, s, n);
+      const maxW = W - 2 * M, maxH = top - M;
+      const k = Math.min(maxW / img.width, maxH / img.height, 1.5);
+      const w = img.width * k, h = img.height * k;
+      page.drawImage(img, { x: (W - w) / 2, y: top - h, width: w, height: h });
+    } else if (s.mime === "application/pdf") {
+      try {
+        const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+        const pags = await pdf.copyPages(src, src.getPageIndices());
+        pags.forEach((p) => pdf.addPage(p));
+      } catch (_e) {
+        // PDF del banco que no se deja copiar: va incrustado como adjunto dentro del mismo archivo
+        await pdf.attach(bytes, s.nombre || `soporte-${codigo}-${n}.pdf`, { mimeType: "application/pdf", description: `Soporte del pago ${codigo}` });
+        const page = pdf.addPage([W, H]);
+        const top = cabeza(page, s, n);
+        page.drawText("El soporte del banco va adjunto dentro de este mismo archivo PDF (panel de adjuntos del lector).", { x: M, y: top - 4 * MM, size: 9.5, font: R, color: TINTA });
+      }
+    } else {
+      const page = pdf.addPage([W, H]);
+      let y = cabeza(page, s, n) - 4 * MM;
+      const texto = new TextDecoder().decode(bytes).replace(/[^\u0000-ÿ\n]/g, "");
+      for (const l of partir(texto, R, 9.5, W - 2 * M)) {
+        if (y < M) break;
+        page.drawText(l, { x: M, y, size: 9.5, font: R, color: TINTA });
+        y -= 4.6 * MM;
+      }
+    }
   }
   return await pdf.save();
 }

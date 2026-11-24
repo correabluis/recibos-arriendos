@@ -120,3 +120,24 @@ export async function archivarEnDrive(sql: any, comprobanteId: number, anulado: 
     return null;
   }
 }
+
+/** Reemplaza el contenido del PDF ya archivado en Drive (mismo archivo, mismo enlace) por el PDF combinado con su soporte. */
+export async function reemplazarEnDrive(sql: any, comprobanteId: number, pdf: Uint8Array, nombre: string): Promise<{ estado: string; drive_id?: string; error?: string }> {
+  try {
+    const [a] = await sql`select drive_id from tesoreria.comprobante_archivo where comprobante_id = ${comprobanteId} and not anulado`;
+    if (!a?.drive_id) return { estado: "sin_archivo_previo" };
+    const tk = await accessToken(sql);
+    if (!tk) return { estado: "error", error: "sin permiso de Google" };
+    const r = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${a.drive_id}?uploadType=media&supportsAllDrives=true&fields=id,size`, {
+      method: "PATCH", headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/pdf" }, body: pdf,
+    });
+    if (!r.ok) throw new Error(`reemplazar ${a.drive_id}: ${r.status} ${await r.text()}`);
+    const f = await r.json();
+    if (Number(f.size) !== pdf.length) throw new Error(`tamaño distinto al reemplazar ${nombre}`);
+    await sql`delete from tesoreria.comprobante_archivo_pendiente where comprobante_id = ${comprobanteId} and not anulado`;
+    return { estado: "reemplazado", drive_id: a.drive_id };
+  } catch (e) {
+    await sql`insert into tesoreria.archivo_drive_error (comprobante_id, anulado, error) values (${comprobanteId}, false, ${String((e as Error)?.message ?? e).slice(0, 500)})`.catch(() => {});
+    return { estado: "error", error: String((e as Error)?.message ?? e) };
+  }
+}

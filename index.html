@@ -128,6 +128,11 @@
           </div>
           <label for="cuenta">Entró a</label>
           <select id="cuenta"></select>
+          <div id="soporteW" class="hide">
+            <label for="soporte">Soporte del banco (obligatorio)</label>
+            <input id="soporte" type="file" accept="image/jpeg,image/png,application/pdf">
+            <div class="muted" style="font-size:12.5px">Foto o captura de la transferencia o consignación, o el PDF del banco. Va en el mismo archivo del recibo.</div>
+          </div>
           <label for="ref">Referencia o comprobante del banco (opcional)</label>
           <input id="ref" maxlength="120">
           <label for="obs">Observaciones (opcional; salen en el recibo)</label>
@@ -156,7 +161,7 @@
 
     <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
-  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 9:40 a. m.</p>
+  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 6:45 p. m.</p>
 </main>
 
 <div class="modal hide" id="mConf"><div class="card">
@@ -263,7 +268,7 @@ async function abrir(id){
   $('kSub').textContent = (K.inmuebles||[]).map(i=>`${i.codigo} · ${i.direccion}`).join(' / ') + ` · Arrendador: ${K.titular_nombre}`;
   $('kSaldo').textContent = '…'; $('kEdades').innerHTML=''; $('kMov').innerHTML='';
   $('fPago').reset(); $('fecha').value = CTX.hoy; msg($('pagoMsg'),'');
-  pintaCuentas(); COSTO_MANUAL = false;
+  pintaCuentas(); pintaSoporte(); $('soporte').value = ''; COSTO_MANUAL = false;
   const { data, error } = await sb.rpc('rc_contrato', { p_id:id });
   if(error) return msg($('pagoMsg'), limpiaErr(error));
   DET = data;
@@ -317,7 +322,25 @@ function pintaCuentas(){
   $('cuenta').innerHTML = cs.length ? cs.map(c=>`<option value="${c.id}">${esc(c.nombre||c.codigo)}${c.nombre?' · '+esc(c.codigo):''}</option>`).join('')
     : `<option value="">${ef?'No tiene caja de efectivo para este arrendador':'No hay cuenta para este arrendador'}</option>`;
 }
-$('medio').onchange = pintaCuentas;
+// Regla de Luis (2026-11-24): todo pago por banco lleva su soporte en el mismo archivo del recibo
+const MEDIOS_BANCO = ['transferencia','consignacion','pse'];
+function pintaSoporte(){ show($('soporteW'), MEDIOS_BANCO.includes($('medio').value)); }
+$('medio').onchange = () => { pintaCuentas(); pintaSoporte(); };
+async function leerSoporte(){
+  const f = $('soporte').files?.[0];
+  if(!f) return null;
+  if(!['image/jpeg','image/png','application/pdf'].includes(f.type)) throw new Error('El soporte debe ser una foto (JPG o PNG) o un PDF.');
+  if(f.size > 8*1024*1024 && f.type==='application/pdf') throw new Error('El PDF del soporte supera 8 MB.');
+  let blob = f, mime = f.type;
+  if(f.type!=='application/pdf' && f.size > 2*1024*1024){ // fotos grandes del celular: se reducen a 1600 px para que suban rápido
+    const img = await createImageBitmap(f); const k = Math.min(1, 1600/Math.max(img.width,img.height));
+    const c = document.createElement('canvas'); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    blob = await new Promise(r=>c.toBlob(r,'image/jpeg',0.85)); mime = 'image/jpeg';
+  }
+  const b64 = await new Promise((ok,ko)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]); r.onerror=ko; r.readAsDataURL(blob); });
+  return { mime, base64:b64, origen:'formulario', nombre:f.name };
+}
 // Costo de la transferencia: se deduce solo (lo que se debe − lo que llegó − retención − facturas del administrador marcadas)
 let COSTO_MANUAL = false;
 function costoAuto(){
@@ -338,6 +361,8 @@ $('fPago').onsubmit = ev => {
   if(!$('fecha').value) return msg($('pagoMsg'),'Escriba la fecha del pago.');
   if($('fecha').value > CTX.hoy) return msg($('pagoMsg'),'La fecha no puede ser futura.');
   if(!cuenta) return msg($('pagoMsg'),'Escoja a qué cuenta entró el dinero.');
+  const pideSoporte = MEDIOS_BANCO.includes($('medio').value);
+  if(pideSoporte && !$('soporte').files?.length) return msg($('pagoMsg'),'Adjunte el soporte del banco (foto, captura o PDF). Es obligatorio para transferencias y consignaciones.');
   const usaAdm = !$('detAdm').classList.contains('hide');
   const cruces = usaAdm ? [...document.querySelectorAll('.admX:checked')].map(x=>({ cuenta_por_pagar_id:Number(x.dataset.id), valor:Number(x.dataset.v) })) : [];
   const costo = usaAdm ? num($('costoTr').value) : 0;
@@ -345,6 +370,7 @@ $('fPago').onsubmit = ev => {
   const total = recibido + ret, s = Number(DET?.saldo||0), queda = s - total - desc;
   PEND = { contrato_id:K.id, fecha_pago:$('fecha').value, valor:total, retencion:ret, medio_pago:$('medio').value, cuenta_id:cuenta, referencia:$('ref').value.trim(), observacion:$('obs').value.trim(), es_prueba:!CTX.reales_habilitados };
   if(desc){ PEND.cruces = cruces; PEND.costo_transferencia = costo; }
+  PEND._soporte = pideSoporte;
   const filas = [['Contrato',`${K.codigo} · ${K.arrendatario||''}`],['Fecha',fecha(PEND.fecha_pago)],['Medio',MEDIOS[PEND.medio_pago]?.nombre||PEND.medio_pago],
     ['Cuenta',$('cuenta').selectedOptions[0].textContent],['Recibido',fmt(recibido)]];
   if(ret) filas.push(['Retención',fmt(ret)]);
@@ -352,6 +378,7 @@ $('fPago').onsubmit = ev => {
   if(ret||desc) filas.push(['Canon pagado (total del recibo)',fmt(total+desc)]);
   if(PEND.referencia) filas.push(['Referencia',PEND.referencia]);
   if(PEND.observacion) filas.push(['Observaciones',PEND.observacion]);
+  if(pideSoporte) filas.push(['Soporte del banco',$('soporte').files[0].name]);
   filas.push(['Saldo después', queda>0 ? 'Debe '+fmt(queda) : queda<0 ? fmt(-queda)+' a favor' : 'Al día']);
   $('confT').innerHTML = filas.map(([a,b])=>`<tr><td class="muted">${a}</td><td class="r"><b>${esc(b)}</b></td></tr>`).join('');
   msg($('confMsg'), PEND.es_prueba ? 'Recibo de PRUEBA: no cambia el saldo real.' : '', true);
@@ -360,7 +387,12 @@ $('fPago').onsubmit = ev => {
 $('cNo').onclick = () => show($('mConf'),false);
 $('cSi').onclick = async () => {
   $('cSi').disabled = true;
-  const { data, error } = await sb.rpc('rc_emitir', { p: PEND });
+  const p = { ...PEND }; delete p._soporte;
+  if(PEND._soporte){
+    try { p.soporte = await leerSoporte(); } catch(e){ $('cSi').disabled = false; return msg($('confMsg'), e.message); }
+    if(!p.soporte){ $('cSi').disabled = false; return msg($('confMsg'),'Falta el soporte del banco.'); }
+  }
+  const { data, error } = await sb.rpc('rc_emitir', { p });
   $('cSi').disabled = false;
   if(error) return msg($('confMsg'), limpiaErr(error));
   show($('mConf'),false);

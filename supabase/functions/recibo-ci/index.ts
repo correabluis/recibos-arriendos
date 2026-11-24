@@ -4,8 +4,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import postgres from "npm:postgres@3.4.4";
 import { Buffer } from "node:buffer";
-import { generarPdf, generarPdfEntrega, puntos } from "./pdf.ts";
-import { archivarEnDrive } from "./drive.ts";
+import { generarPdf, generarPdfEntrega, puntos, unirSoportes } from "./pdf.ts";
+import { archivarEnDrive, reemplazarEnDrive } from "./drive.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,6 +40,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   try {
     const body = await req.json().catch(() => ({}));
+    // Trae de Bird la imagen o PDF que mandaron por WhatsApp y la deja lista como soporte (pedido creado en la base con token)
+    if (body.prepararSoporte) return await prepararSoporte(Number(body.prepararSoporte.id), String(body.prepararSoporte.token || ""));
     let uid: string;
     if (body.ticket) {
       // Recibo emitido por una tarea programada: boleto de un solo uso creado en la base
@@ -64,7 +66,10 @@ Deno.serve(async (req) => {
 
     const [{ d }] = await sql`select tesoreria.fn_datos_recibo(${id}) as d`;
     const [logo] = await sql`select logo, logo_mime from maestros.entidad_propia where codigo = ${d.titular.codigo}`;
-    const bytes = await generarPdf(d, logo?.logo ? { bytes: new Uint8Array(logo.logo), mime: logo.logo_mime || "image/jpeg" } : null);
+    const soloComprobante = await generarPdf(d, logo?.logo ? { bytes: new Uint8Array(logo.logo), mime: logo.logo_mime || "image/jpeg" } : null);
+    // Regla de Luis (2026-11-24): comprobante y soporte del banco en un mismo archivo
+    const soportes = await sql`select contenido, mime, origen, nombre, creado_en from tesoreria.comprobante_soporte where comprobante_id = ${id} order by id`;
+    const bytes = await unirSoportes(soloComprobante, soportes, d.codigo);
     const sha = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))).map((b) => b.toString(16).padStart(2, "0")).join("");
 
     const fp = String(d.fecha_pago);
@@ -82,6 +87,9 @@ Deno.serve(async (req) => {
       on conflict (comprobante_id, anulado) do update set nombre = excluded.nombre, pdf = excluded.pdf, created_at = now()`;
     const { data: firmado } = await sb.storage.from("recibos").createSignedUrl(ruta, 7 * 24 * 3600, { download: nombreArchivo });
     const url = firmado?.signedUrl;
+    // Soporte agregado a un recibo ya archivado: el administrador pide reemplazar el archivo de Drive por el combinado
+    let reemplazo: unknown = undefined;
+    if (body.reemplazarDrive && usr.rol === "admin" && !anulado) reemplazo = await reemplazarEnDrive(sql, id, bytes, nombreArchivo);
 
     // ---- WhatsApp ----
     let envio: Record<string, unknown> = { estado: "no_enviado" };
@@ -152,7 +160,7 @@ Deno.serve(async (req) => {
     })();
     // @ts-ignore EdgeRuntime existe en Supabase
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(drive); else await drive;
-    return json({ ok: true, codigo: d.codigo, url, archivo: nombreArchivo, envio });
+    return json({ ok: true, codigo: d.codigo, url, archivo: nombreArchivo, envio, soportes: soportes.length, reemplazo });
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500);
   }
@@ -282,4 +290,34 @@ async function procesarEntrega(id: number, uid: string, usr: any, body: any) {
     envio = mensajeId ? { estado: "enviado", para: "****" + para!.slice(-4), a: d.es_prueba ? "quien registró (prueba)" : "cobrador" } : { estado: "error", error };
   }
   return json({ ok: true, codigo: d.codigo, url, archivo: nombreArchivo, envio });
+}
+
+// ================= Soporte que llegó por WhatsApp (regla de Luis, 2026-11-24) =================
+async function prepararSoporte(id: number, token: string) {
+  const [p] = await sql`select id, bird_mensaje, bird_media, contenido is not null as listo from tesoreria.soporte_preparado where id = ${id} and token::text = ${token}`;
+  if (!p) return json({ error: "Pedido de soporte no válido" }, 401);
+  if (p.listo) return json({ ok: true, id, estado: "ya_listo" });
+  const key = Deno.env.get("BIRD_API_KEY");
+  const fallar = async (e: string) => { await sql`update tesoreria.soporte_preparado set error = ${e.slice(0, 300)} where id = ${id}`; return json({ error: e }, 502); };
+  if (!key) return await fallar("Falta la llave de Bird");
+  const region = String(key).match(/^b[km]_(\w+?)_/)?.[1] || "us1";
+  const r = await fetch(`https://${region}.platform.bird.com/v1/whatsapp/messages/${p.bird_mensaje}/media/${p.bird_media}`, { headers: { Authorization: `Bearer ${key}` } });
+  if (!r.ok) return await fallar(`Bird ${r.status} al bajar el soporte`);
+  let mime = (r.headers.get("content-type") || "").split(";")[0].trim();
+  let bytes = new Uint8Array(await r.arrayBuffer());
+  // Archivos grandes: Bird responde con un enlace temporal
+  if (mime.includes("json")) {
+    const j = JSON.parse(new TextDecoder().decode(bytes));
+    const u = j.url || j.download_url;
+    if (!u) return await fallar("Bird no entregó el archivo");
+    const r2 = await fetch(u);
+    if (!r2.ok) return await fallar(`descarga ${r2.status}`);
+    mime = (r2.headers.get("content-type") || "").split(";")[0].trim();
+    bytes = new Uint8Array(await r2.arrayBuffer());
+  }
+  if (mime === "image/jpg") mime = "image/jpeg";
+  if (!["image/jpeg", "image/png", "application/pdf"].includes(mime)) return await fallar(`Tipo de archivo no admitido como soporte: ${mime}`);
+  await sql`update tesoreria.soporte_preparado set contenido = ${Buffer.from(bytes)}, mime = ${mime}, error = null,
+    nombre = ${`soporte-whatsapp-${p.bird_mensaje}.${mime === "application/pdf" ? "pdf" : mime === "image/png" ? "png" : "jpg"}`} where id = ${id}`;
+  return json({ ok: true, id, mime, bytes: bytes.length });
 }
