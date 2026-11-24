@@ -89,10 +89,19 @@ Deno.serve(async (req) => {
     // Contratos administrados por agencia: no se le escribe al arrendatario (regla única en privado.fn_comunicar_arrendatario)
     const conAdministrador = !c.es_prueba && d.contrato?.id &&
       !(await sql`select privado.fn_comunicar_arrendatario(${d.contrato.id}) as ok`)[0].ok;
-    if (anulado) envio = body.avisarAnulacion ? await avisarAnulacion(id, c, d, url, nombreArchivo, total) : { estado: "no_aplica", motivo: "comprobante anulado" };
+    // Regla de Luis (2026-11-24): a clientes solo de 7:00 a. m. a 8:00 p. m. (parámetros whatsapp_hora_inicio / _fin).
+    // Fuera de ese horario el envío queda en tesoreria.envio_diferido y sale solo en la siguiente llamada dentro del horario.
+    const enHorario = (await sql`select privado.fn_whatsapp_en_horario() as ok`)[0].ok;
+    const diferir = async (aviso: boolean) => {
+      await sql`insert into tesoreria.envio_diferido (comprobante_id, avisar_anulacion) values (${id}, ${aviso}) on conflict do nothing`;
+      return { estado: "diferido", motivo: "fuera del horario de envío (7:00 a. m. a 8:00 p. m.); sale automáticamente en la mañana" };
+    };
+    if (anulado) envio = !body.avisarAnulacion ? { estado: "no_aplica", motivo: "comprobante anulado" }
+      : (!c.es_prueba && !enHorario) ? await diferir(true) : await avisarAnulacion(id, c, d, url, nombreArchivo, total);
     else if (conAdministrador) envio = { estado: "no_aplica", motivo: "inmueble administrado por un tercero: no se le escribe al arrendatario" };
     else if (body.soloPdf) envio = { estado: "omitido" };
     else if (yaEnviado && !(body.reenviar && usr.rol === "admin")) envio = { estado: "ya_enviado" };
+    else if (!c.es_prueba && !enHorario) envio = await diferir(false);
     else {
       const destId = c.es_prueba ? usr.tercero_id : c.tercero_id;
       const [dest] = await sql`select t.id, t.tipo_persona, t.primer_nombre, t.nombre_mostrar,
@@ -138,6 +147,8 @@ Deno.serve(async (req) => {
       await archivarEnDrive(sql, id, anulado);
       const pend = await sql`select comprobante_id, anulado from tesoreria.comprobante_archivo_pendiente order by created_at limit 5`;
       for (const p of pend) await archivarEnDrive(sql, Number(p.comprobante_id), p.anulado);
+      // Envíos que quedaron esperando por horario: salen ahora si ya estamos dentro del horario
+      if (enHorario) await sql`select privado.fn_lanzar_envios_diferidos()`.catch(() => {});
     })();
     // @ts-ignore EdgeRuntime existe en Supabase
     if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(drive); else await drive;
