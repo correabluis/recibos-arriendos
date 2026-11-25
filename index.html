@@ -8,6 +8,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <meta name="theme-color" content="#16382b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="app/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="app/icono-192.png">
 <style>
   :root{color-scheme:dark;--bg:#111513;--card:#1a201d;--field:#222a26;--ink:#e7ece9;--muted:#9aa6a0;--line:#2e3732;--head:#16382b;--brand:#2f9a6c;--brand2:#1d3a2d;--brandtx:#7fd6ad;--warn:#f2b65c;--warnbg:#3a2c12;--warnline:#5c4520;--bad:#ff8f86;--badbg:#3e1f1c}
   *{box-sizing:border-box}
@@ -161,7 +164,7 @@
 
     <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
-  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 7:50 p. m.</p>
+  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-25 · 2:35 p. m.</p>
 </main>
 
 <div class="modal hide" id="mConf"><div class="card">
@@ -574,6 +577,8 @@ sb.auth.onAuthStateChange((ev, ses) => { if(ev==='SIGNED_IN' && ses && !CTX) ini
   const { data } = await sb.auth.getSession();
   if(data.session) iniciar();
 })();
+
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 </script>
 </body>
 </html>
