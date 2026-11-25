@@ -161,7 +161,7 @@
 
     <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
-  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 7:30 p. m.</p>
+  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 7:35 p. m.</p>
 </main>
 
 <div class="modal hide" id="mConf"><div class="card">
@@ -509,7 +509,7 @@ async function cargaCajas(){
     <span class="meta" style="grid-area:chips;color:#cfe9dc">${(c.recibos||[]).length} recibo${(c.recibos||[]).length===1?'':'s'} por entregar${admin?' · en poder de '+esc(c.responsable||''):''}${CTX.reales_habilitados?'':' · <b>modo prueba</b>'}</span></div></div><div class="caja-b">
     ${(c.recibos||[]).length?[...c.recibos].sort((x,y)=>String(x.fecha).localeCompare(String(y.fecha))||x.id-y.id).map(r=>tarjetaRecibo(r,false,c.titular)).join(''):'<p class="muted">Sin recibos pendientes de entregar.</p>'}
     ${admin && Number(c.saldo)>0 ? `<details style="margin-top:8px"><summary><b>Recibí la entrega</b></summary>
-      <label>Valor recibido (COP)</label><input class="eV" inputmode="numeric" value="${fmt(c.saldo).replace(' COP','')}">
+      <label>Valor recibido (COP) · la entrega es siempre por todo el efectivo de la caja</label><input class="eV" inputmode="numeric" readonly style="background:var(--brand2)" value="${fmt(c.saldo).replace(' COP','')}">
       <label>A dónde fue el dinero</label><select class="eD">${(c.destinos||[]).map(d=>`<option value="${d.id}" data-t="${d.tipo}">${d.tipo==='caja'?'Efectivo entregado a mí ('+esc(d.codigo)+')':'Consignado en '+esc(d.codigo)}</option>`).join('')}</select>
       <div class="eRw hide"><label>Referencia de la consignación</label><input class="eR" maxlength="60"></div>
       <label>Observaciones (opcional)</label><input class="eO" maxlength="200">
