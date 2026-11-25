@@ -161,7 +161,7 @@
 
     <div id="pCaja" class="hide"><div id="listaC" class="muted">Cargando…</div></div>
   </section>
-  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 6:45 p. m.</p>
+  <p class="muted" style="text-align:center;font-size:11px;margin:18px 0 8px">Versión 2026-11-24 · 7:30 p. m.</p>
 </main>
 
 <div class="modal hide" id="mConf"><div class="card">
@@ -468,6 +468,28 @@ function tarjetaRecibo(r, entregado, titular){
   const l2=[r.codigo, fecha(r.fecha), (MED[r.medio]||r.medio)+(r.referencia?' '+r.referencia:''), per?'canon '+per:''].filter(Boolean).join(' · ');
   return `<div class="rec rec2"><span class="ben">${esc(r.pagador||'')}</span><span class="money">${fmt(r.valor)}</span><span class="meta">${esc(l1)}<br>${esc(l2)}</span><span class="chips">${chipsRecibo(r, entregado, titular).join('')}</span></div>`;
 }
+async function cargaHistorico(){
+  const box = $('histE'), b = $('btnHist');
+  if(box.dataset.abierto){ box.innerHTML=''; delete box.dataset.abierto; b.textContent='Histórico de entregas'; return; }
+  box.innerHTML = '<p class="muted">Cargando…</p>';
+  const { data, error } = await sb.rpc('rc_entregas', {});
+  if(error){ box.innerHTML = `<p>${esc(limpiaErr(error))}</p>`; return; }
+  box.dataset.abierto = '1'; b.textContent = 'Ocultar histórico';
+  if(!data.length){ box.innerHTML = '<p class="muted">Todavía no hay entregas registradas.</p>'; return; }
+  const admin = CTX.rol==='admin';
+  const meses = {};
+  data.forEach(e=>{ const k = String(e.fecha).slice(0,7); (meses[k]=meses[k]||[]).push(e); });
+  box.innerHTML = Object.entries(meses).map(([k,lst])=>{
+    const nom = new Date(k+'-15T12:00:00').toLocaleDateString('es-CO',{month:'long',year:'numeric'});
+    const tot = lst.reduce((a,e)=>a+Number(e.valor||0),0);
+    return `<details style="margin-top:10px" ${k===Object.keys(meses)[0]?'open':''}><summary><b>${esc(nom.charAt(0).toUpperCase()+nom.slice(1))}</b> · ${lst.length} entrega${lst.length>1?'s':''} · ${fmt(tot)}</summary>` + lst.map(e=>`<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px">
+      <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num">${esc(e.codigo)}</span><span class="money">${fmt(e.valor)}</span>
+      <span class="chips"><span class="chip ok">Entregado</span><span class="chip ${e.confirmado?'ok':'pend'}">${e.confirmado?'Confirmada por el cobrador':'Sin confirmar'}</span></span>
+      <span class="meta">${fecha(e.fecha)}${e.creado_en?' a las '+esc(new Date(e.creado_en).toLocaleTimeString('es-CO',{timeZone:'America/Bogota',hour:'numeric',minute:'2-digit'})):''} · Titular: ${esc(e.titular_nombre)}${admin?' · Entregó: '+esc(e.responsable||''):''} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · <button class="link" data-en="${e.id}">Ver PDF</button></span></div>
+      ${(e.recibos||[]).length?'<details style="margin-top:6px"><summary>'+e.recibos.length+' recibo'+(e.recibos.length>1?'s':'')+' incluidos</summary>'+e.recibos.map(r=>tarjetaRecibo(r,true,null)).join('')+'</details>':''}</div>`).join('') + '</details>';
+  }).join('');
+  box.querySelectorAll('[data-en]').forEach(x=>x.onclick=async()=>{ x.textContent='…'; try{ const p=await procesarEntrega(Number(x.dataset.en), true); window.open(p.url,'_blank','noopener'); x.textContent='Ver PDF'; }catch(err){ x.textContent='Error'; } });
+}
 async function cargaCajas(){
   $('listaC').innerHTML = '<div class="card muted">Cargando…</div>';
   const { data, error } = await sb.rpc('rc_cajas');
@@ -480,7 +502,7 @@ async function cargaCajas(){
   data.forEach(c=>{ const k = mias.has(c.id) ? 'Total en mi poder' : 'Total en poder de ' + (c.responsable||'el cobrador'); tot[k] = (tot[k]||0) + Number(c.saldo||0); });
   const resumen = `<div class="card" style="background:var(--brand2);border:2px solid var(--brand);text-align:center;padding:18px 14px">${Object.entries(tot).sort((a,b)=>a[0].localeCompare(b[0])).map(([k,v])=>`<div style="margin:6px 0"><div style="font-size:15px;font-weight:700;color:var(--brandtx);text-transform:uppercase;letter-spacing:.04em">${esc(k)}</div><div class="amt" style="font-size:32px;font-weight:800;color:var(--ink);margin-top:2px">${fmt(v)}</div></div>`).join('')}<div style="margin-top:6px;font-weight:700">${(()=>{const n=data.reduce((a,c)=>a+(c.recibos||[]).length,0);return n?`${n} recibo${n>1?'s':''} por entregar`:'Ningún recibo pendiente'})()}</div><div class="muted" style="margin-top:4px">Un recibo en efectivo queda «por entregar» hasta que Luis confirma que recibió el dinero. El detalle por titular está abajo.</div></div>`;
   // Solo se muestran las cajas con efectivo o recibos pendientes (una caja en cero no aporta y confunde)
-  const conMov = data.filter(c=>Number(c.saldo||0)!==0 || (c.recibos||[]).length || (c.entregas||[]).length);
+  const conMov = data.filter(c=>Number(c.saldo||0)!==0 || (c.recibos||[]).length);
   const vacias = data.length - conMov.length;
   $('listaC').innerHTML = resumen + (conMov.length ? '' : '<div class="card muted">No hay efectivo pendiente por entregar.</div>') + conMov.map(c=>`<div class="card caja">
     <div class="caja-h"><div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num" style="font-size:17px;font-family:inherit;color:#fff">${esc(c.titular_nombre)}</span><span class="money" style="font-size:20px;color:#fff">${fmt(c.saldo)}</span>
@@ -493,15 +515,10 @@ async function cargaCajas(){
       <label>Observaciones (opcional)</label><input class="eO" maxlength="200">
       <div class="eM"></div><div style="height:8px"></div>
       <button class="btn eB" data-caja="${c.id}" data-cod="${esc(c.codigo)}">Confirmar entrega</button></details>` : ''}
-    ${(c.entregas||[]).length?'<details style="margin-top:10px"><summary>Entregas recientes</summary>'+c.entregas.map(e=>`<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px">
-      <div class="rec" style="margin-top:0;background:transparent;border:none;padding:0"><span class="num">${esc(e.codigo)}</span><span class="money">${fmt(e.valor)}</span>
-      <span class="chips"><span class="chip ok">Entregado</span><span class="chip ${e.confirmado?'ok':'pend'}">${e.confirmado?'Confirmada por el cobrador':'Sin confirmar'}</span></span>
-      <span class="meta">Entregado el ${fecha(e.fecha)}${e.creado_en?' a las '+esc(new Date(e.creado_en).toLocaleTimeString('es-CO',{timeZone:'America/Bogota',hour:'numeric',minute:'2-digit'})):''} · ${e.destino_tipo==='caja'?'efectivo':'consignado'}${e.referencia?' · ref. '+esc(e.referencia):''} · <button class="link" data-en="${e.id}">Ver PDF</button></span></div>
-      ${(e.recibos||[]).map(r=>tarjetaRecibo(r,true,c.titular)).join('')}</div>`).join('')+'</details>':''}
-  </div></div>`).join('');
+  </div></div>`).join('') + `<div class="card" style="text-align:center"><button class="btn" id="btnHist">Histórico de entregas</button><div id="histE" style="text-align:left"></div></div>`;
+  $('btnHist').onclick = ()=> cargaHistorico();
   $('listaC').querySelectorAll('.eV').forEach(i=>i.addEventListener('input', e=>{ const n=num(e.target.value); e.target.value = n? n.toLocaleString('es-CO').replace(/,/g,'.') : ''; }));
   $('listaC').querySelectorAll('.eD').forEach(sel=>{ const f=()=>show(sel.parentElement.querySelector('.eRw'), sel.selectedOptions[0]?.dataset.t!=='caja'); sel.onchange=f; f(); });
-  $('listaC').querySelectorAll('[data-en]').forEach(b=>b.onclick=async()=>{ b.textContent='…'; try{ const p=await procesarEntrega(Number(b.dataset.en), true); window.open(p.url,'_blank','noopener'); b.textContent='PDF'; }catch(e){ b.textContent='Error'; } });
   $('listaC').querySelectorAll('.eB').forEach(b=>b.onclick=async()=>{
     const box = b.parentElement, m = box.querySelector('.eM');
     const valor = num(box.querySelector('.eV').value), dest = Number(box.querySelector('.eD').value);
